@@ -1,0 +1,33 @@
+# Deny the repository by default. Dockerfiles may opt in only to immutable
+# source and dependency manifests; local credentials and runtime data never
+# belong in a build context.
+**
+
+!.dockerignore
+
+!backend/
+!backend/app/
+!backend/app/**
+!backend/alembic/
+!backend/alembic/**
+!backend/alembic.ini
+!backend/requirements.txt
+
+!frontend/
+!frontend/index.html
+!frontend/package.json
+!frontend/pnpm-lock.yaml
+!frontend/pnpm-workspace.yaml
+!frontend/tsconfig.json
+!frontend/tsconfig.app.json
+!frontend/tsconfig.node.json
+!frontend/vite.config.ts
+!frontend/src/
+!frontend/src/**
+
+!infra/
+!infra/docker/
+!infra/docker/*.Dockerfile
+!infra/docker/*.dockerignore
+!infra/docker/nginx.conf
+!infra/docker/object-storage-gateway.conf

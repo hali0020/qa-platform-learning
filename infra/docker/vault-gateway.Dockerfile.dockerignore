@@ -1,0 +1,4 @@
+**
+!infra
+!infra/docker
+!infra/docker/vault-gateway.conf

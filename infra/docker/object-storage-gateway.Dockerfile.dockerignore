@@ -1,0 +1,4 @@
+**
+!infra
+!infra/docker
+!infra/docker/object-storage-gateway.conf

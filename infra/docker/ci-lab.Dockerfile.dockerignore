@@ -1,0 +1,7 @@
+**
+!backend
+!backend/requirements.txt
+!backend/app
+!backend/app/__init__.py
+!backend/app/ci_lab
+!backend/app/ci_lab/**

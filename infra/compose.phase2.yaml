@@ -1,0 +1,672 @@
+name: qa-platform-learning
+
+services:
+  postgres:
+    # Optional phase-2 database runtime; activate it explicitly with the
+    # postgres profile and matching COMPOSE_DATABASE_* values in local .env.
+    image: postgres:17.11-alpine3.23
+    profiles: ["postgres", "worker"]
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-qa_platform_learning}
+      POSTGRES_USER: ${POSTGRES_USER:-qa_platform_learning}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256 --data-checksums
+    secrets:
+      - source: postgres_password
+        target: postgres_password
+        uid: "70"
+        gid: "70"
+        mode: 0400
+    expose:
+      - "5432"
+    volumes:
+      # PostgreSQL 17 and earlier persist PGDATA at this exact path.
+      - postgres-data:/var/lib/postgresql/data
+    shm_size: 128mb
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          pg_isready --host=127.0.0.1
+          --username="$${POSTGRES_USER}" --dbname="$${POSTGRES_DB}"
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 30s
+    restart: unless-stopped
+
+  seaweedfs-core:
+    # Official SeaweedFS 4.44 multi-platform index, verified on Docker Hub.
+    # Keep both the exact release tag and index digest; never replace with latest.
+    image: chrislusf/seaweedfs:4.44@sha256:e67e8c385484120b78bff47ba5f4debbca47fbd27ed1a39f016f47e8baea615b
+    profiles: ["object-storage"]
+    environment:
+      # SeaweedFS `weed mini` uses these variables as its static S3 admin
+      # identity. Missing either key would otherwise enable anonymous Allow All.
+      AWS_ACCESS_KEY_ID: ${OBJECT_STORAGE_ACCESS_KEY:-}
+      AWS_SECRET_ACCESS_KEY: ${OBJECT_STORAGE_SECRET_KEY:-}
+      S3_BUCKET: qa-artifacts
+    # Compose expands inactive profiles too, so ${VAR:?error} would break the
+    # default local-filesystem topology. Fail inside this optional container
+    # instead, before starting an anonymous S3 endpoint.
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        if [ -z "$${AWS_ACCESS_KEY_ID}" ] || [ -z "$${AWS_SECRET_ACCESS_KEY}" ]; then
+          echo "SeaweedFS local credentials are required; refusing anonymous S3." >&2
+          exit 1
+        fi
+        if [ "$${AWS_ACCESS_KEY_ID}" = "$${AWS_SECRET_ACCESS_KEY}" ]; then
+          echo "SeaweedFS access and secret keys must be different." >&2
+          exit 1
+        fi
+        exec /entrypoint.sh mini \
+          -dir=/data \
+          -master.telemetry=false \
+          -webdav=false \
+          -admin.ui=false \
+          -s3.port.iceberg=0 \
+          -s3.port.lance=0 \
+          -s3.iam=false
+    expose:
+      - "8333"
+    volumes:
+      - seaweedfs-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop:
+      - ALL
+    # The pinned 4.44 entrypoint uses these only to fix named-volume
+    # ownership, then drops to its dedicated `seaweed` user via su-exec.
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 8333"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 30s
+    stop_grace_period: 30s
+    restart: unless-stopped
+    networks:
+      - object-storage-core
+
+  seaweedfs:
+    # The application-facing DNS name is an S3-only gateway. SeaweedFS mini
+    # still needs internal Master/Filer/Volume/Admin listeners, but the backend
+    # never joins their network and can reach only this gateway on port 8333.
+    build:
+      context: ..
+      dockerfile: infra/docker/object-storage-gateway.Dockerfile
+    profiles: ["object-storage"]
+    depends_on:
+      seaweedfs-core:
+        condition: service_healthy
+    expose:
+      - "8333"
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+      - /var/cache/nginx:size=32m,mode=0755
+      - /var/run:size=4m,mode=0755
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "nginx", "-t"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - object-storage
+      - object-storage-core
+
+  keycloak-core:
+    # Optional self-owned OIDC lesson. The exact upstream image is pinned in
+    # keycloak.Dockerfile and pre-optimized so this runtime can be read-only.
+    build:
+      context: ..
+      dockerfile: infra/docker/keycloak.Dockerfile
+    profiles: ["identity-secrets"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_BOOTSTRAP_ADMIN_USERNAME:-qa-bootstrap-admin}
+      KC_HOSTNAME: http://127.0.0.1:23010
+      KC_HTTP_RELATIVE_PATH: /identity
+      KC_HTTP_ENABLED: "true"
+      KC_PROXY_HEADERS: xforwarded
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "false"
+      KC_TRACING_ENABLED: "false"
+      JAVA_OPTS_KC_HEAP: >-
+        -XX:MaxHeapFreeRatio=30 -XX:MaxRAMPercentage=65
+        -XX:InitialRAMPercentage=35
+    secrets:
+      - source: keycloak_bootstrap_admin_password
+        target: keycloak_bootstrap_admin_password
+        uid: "1000"
+        gid: "0"
+        mode: 0400
+    # Keycloak has no *_FILE option for the bootstrap password. Read the
+    # Compose secret without placing it in container metadata, then exec so
+    # shutdown signals reach the server process.
+    entrypoint:
+      - /bin/bash
+      - -ec
+      - |
+        password="$(</run/secrets/keycloak_bootstrap_admin_password)"
+        if [ -z "$${KC_BOOTSTRAP_ADMIN_USERNAME}" ] || [ "$${#password}" -lt 16 ]; then
+          echo "A bootstrap admin username and 16+ character local password are required." >&2
+          exit 1
+        fi
+        export KC_BOOTSTRAP_ADMIN_PASSWORD="$${password}"
+        unset password
+        exec /opt/keycloak/bin/kc.sh start --optimized --import-realm
+    expose:
+      - "8080"
+      - "9000"
+    volumes:
+      - keycloak-data:/opt/keycloak/data
+      - ./keycloak/qa-learning-realm.json:/opt/keycloak/data/import/qa-learning-realm.json:ro
+    read_only: true
+    tmpfs:
+      - /tmp:size=128m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 1g
+    pids_limit: 256
+    healthcheck:
+      test:
+        - CMD
+        - /bin/bash
+        - -ec
+        - |
+          exec 3<>/dev/tcp/127.0.0.1/9000
+          printf 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3
+          IFS= read -r status <&3
+          case "$${status}" in *" 200 "*) exit 0 ;; *) exit 1 ;; esac
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 60s
+    stop_grace_period: 30s
+    restart: unless-stopped
+    networks:
+      - identity-core
+
+  keycloak:
+    # This path-filtering gateway is the only process that can reach the
+    # Keycloak application port. Admin/master/management endpoints stay inner.
+    build:
+      context: ..
+      dockerfile: infra/docker/keycloak-gateway.Dockerfile
+    profiles: ["identity-secrets"]
+    depends_on:
+      keycloak-core:
+        condition: service_healthy
+    expose:
+      - "8080"
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+      - /var/cache/nginx:size=32m,mode=0755
+      - /var/run:size=4m,mode=0755
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "nginx", "-t"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - identity
+      - identity-core
+
+  vault-core:
+    # Persistent single-node teaching mode: unlike `vault server -dev`, this
+    # starts sealed and stores only encrypted data in a named volume.
+    image: hashicorp/vault:2.0.4@sha256:5be49781ecf78bfe775c5309c6a4d9f4e9e040b6c885c99eb2b12fb69855e1a2
+    profiles: ["identity-secrets"]
+    # The pinned official entrypoint adds -config=/vault/config itself. Passing
+    # the file again would load the same listener/storage stanza twice.
+    command: ["server"]
+    environment:
+      VAULT_ADDR: http://127.0.0.1:8200
+      OPTOUT_PRODUCT_USAGE_REPORTING: "true"
+    expose:
+      - "8200"
+    volumes:
+      - vault-data:/vault/file
+      - ./vault/config/vault.hcl:/vault/config/vault.hcl:ro
+      - ./vault/policies:/vault/policies:ro
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    cap_drop:
+      - ALL
+    cap_add:
+      # The file-storage lesson keeps mlock enabled, as HashiCorp recommends.
+      - IPC_LOCK
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 512m
+    pids_limit: 128
+    healthcheck:
+      test: ["CMD", "vault", "status", "-address=http://127.0.0.1:8200"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    stop_grace_period: 30s
+    restart: unless-stopped
+    networks:
+      - secrets-core
+
+  vault:
+    # The backend sees only two exact read-only KV-v2 paths through this
+    # gateway; root, init, unseal, sys, UI and write APIs never cross layers.
+    build:
+      context: ..
+      dockerfile: infra/docker/vault-gateway.Dockerfile
+    profiles: ["identity-secrets"]
+    depends_on:
+      vault-core:
+        condition: service_healthy
+    expose:
+      - "8200"
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+      - /var/cache/nginx:size=32m,mode=0755
+      - /var/run:size=4m,mode=0755
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "nginx", "-t"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - secrets
+      - secrets-core
+
+  ci-lab:
+    # Our own deterministic CI control-plane simulator. It is off by default,
+    # has no route to the other service networks or the Internet, and accepts
+    # only the machine token mounted from the local Compose secret below.
+    build:
+      context: ..
+      dockerfile: infra/docker/ci-lab.Dockerfile
+    profiles: ["ci-lab"]
+    environment:
+      CI_LAB_DATABASE_PATH: /data/ci-lab.db
+      CI_LAB_MACHINE_TOKEN_FILE: /run/secrets/ci_lab_machine_token
+    secrets:
+      - source: ci_lab_machine_token
+        target: ci_lab_machine_token
+        uid: "10001"
+        gid: "10001"
+        mode: 0400
+    # Direct access exists only so a learner can inspect the isolated API.
+    # The QA backend uses the fixed 172.30.60.2:8080 container endpoint.
+    ports:
+      - "127.0.0.1:23020:8080"
+    volumes:
+      - ci-lab-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 256m
+    pids_limit: 128
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health/live', timeout=2).read()"
+      interval: 10s
+      timeout: 3s
+      retries: 8
+      start_period: 15s
+    stop_grace_period: 20s
+    restart: unless-stopped
+    networks:
+      ci-lab:
+        ipv4_address: 172.30.60.2
+
+  backend:
+    build:
+      context: ..
+      dockerfile: infra/docker/backend.Dockerfile
+    environment:
+      APP_ENV: local-container
+      DEBUG: "false"
+      HOST: 0.0.0.0
+      PORT: "23100"
+      # The process must listen on the container interface. Host publication is
+      # still loopback-only on the frontend service below.
+      LOCAL_ONLY: "false"
+      CORS_ORIGINS: http://127.0.0.1:23010,http://localhost:23010
+      # Both values must come from the ignored repository-root .env. The
+      # checked-in example selects SQLite; PostgreSQL is always explicit.
+      DATABASE_RUNTIME_MODE: ${COMPOSE_DATABASE_RUNTIME_MODE:?copy .env.example to .env}
+      DATABASE_URL: ${COMPOSE_DATABASE_URL:?copy .env.example to .env}
+      BROKER_RUNTIME_MODE: ${COMPOSE_BROKER_RUNTIME_MODE:-disabled_local}
+      BROKER_URL: ${COMPOSE_BROKER_URL:-}
+      OBJECT_STORAGE_RUNTIME_MODE: ${COMPOSE_OBJECT_STORAGE_RUNTIME_MODE:-local_filesystem}
+      OBJECT_STORAGE_ENDPOINT_URL: ${COMPOSE_OBJECT_STORAGE_ENDPOINT_URL:-}
+      OBJECT_STORAGE_BUCKET: ${COMPOSE_OBJECT_STORAGE_BUCKET:-}
+      OBJECT_STORAGE_REGION: us-east-1
+      OBJECT_STORAGE_ACCESS_KEY: ${OBJECT_STORAGE_ACCESS_KEY:-}
+      OBJECT_STORAGE_SECRET_KEY: ${OBJECT_STORAGE_SECRET_KEY:-}
+      OBJECT_STORAGE_MAX_CONCURRENCY: ${OBJECT_STORAGE_MAX_CONCURRENCY:-4}
+      OBJECT_STORAGE_OPERATION_TIMEOUT_SECONDS: ${OBJECT_STORAGE_OPERATION_TIMEOUT_SECONDS:-10}
+      AUTH_ENABLED: "true"
+      AUTH_RUNTIME_MODE: ${COMPOSE_AUTH_RUNTIME_MODE:-local_accounts}
+      OIDC_ISSUER: ${COMPOSE_OIDC_ISSUER:-}
+      OIDC_BROWSER_AUTHORIZATION_ENDPOINT: ${COMPOSE_OIDC_BROWSER_AUTHORIZATION_ENDPOINT:-}
+      OIDC_TOKEN_ENDPOINT: ${COMPOSE_OIDC_TOKEN_ENDPOINT:-}
+      OIDC_JWKS_ENDPOINT: ${COMPOSE_OIDC_JWKS_ENDPOINT:-}
+      OIDC_CLIENT_ID: ${COMPOSE_OIDC_CLIENT_ID:-}
+      OIDC_REDIRECT_URI: ${COMPOSE_OIDC_REDIRECT_URI:-}
+      OIDC_POST_LOGIN_REDIRECT_URI: ${COMPOSE_OIDC_POST_LOGIN_REDIRECT_URI:-}
+      OIDC_TRANSACTION_COOKIE_NAME: ${OIDC_TRANSACTION_COOKIE_NAME:-qa_oidc_txn}
+      OIDC_OPERATION_TIMEOUT_SECONDS: ${OIDC_OPERATION_TIMEOUT_SECONDS:-5}
+      OIDC_TRANSACTION_TTL_SECONDS: ${OIDC_TRANSACTION_TTL_SECONDS:-300}
+      OIDC_JWKS_CACHE_SECONDS: ${OIDC_JWKS_CACHE_SECONDS:-300}
+      SECRET_STORE_RUNTIME_MODE: ${COMPOSE_SECRET_STORE_RUNTIME_MODE:-env_local}
+      VAULT_ENDPOINT_URL: ${COMPOSE_VAULT_ENDPOINT_URL:-}
+      VAULT_KV_MOUNT: ${COMPOSE_VAULT_KV_MOUNT:-}
+      VAULT_APP_TOKEN_FILE: ${COMPOSE_VAULT_APP_TOKEN_FILE:-}
+      VAULT_MAX_CONCURRENCY: ${VAULT_MAX_CONCURRENCY:-4}
+      VAULT_OPERATION_TIMEOUT_SECONDS: ${VAULT_OPERATION_TIMEOUT_SECONDS:-3}
+      VAULT_MAX_ATTEMPTS: ${VAULT_MAX_ATTEMPTS:-3}
+      # Never let an S3 SDK fall through to a cloud instance-metadata service.
+      AWS_EC2_METADATA_DISABLED: "true"
+      LOCAL_DATA_ROOT: /data
+      # ci_lab_local is a separate, fixed-target mode. It is selected only by
+      # the explicit ci-lab startup flow; the ordinary Compose default remains
+      # the zero-network local simulator.
+      PROVIDER_RUNTIME_MODE: ${COMPOSE_PROVIDER_RUNTIME_MODE:-local_lab}
+      PROVIDER_SELF_HOSTED_OWNERSHIP_ACKNOWLEDGED: "false"
+      PROVIDER_ALLOWED_HOSTS: ""
+      PROVIDER_ALLOWED_PORTS: "443"
+      PROVIDER_ALLOWED_NETWORKS: ""
+      PROVIDER_ALLOW_LOOPBACK_HTTP: "false"
+      PROVIDER_SECRET_ENV_ALLOWLIST: ${COMPOSE_PROVIDER_SECRET_ENV_ALLOWLIST:-}
+      # This environment-only hand-off is an explicit single-host teaching
+      # limitation. The CI Lab itself receives the same value as a read-only
+      # Compose secret file and neither process may print it.
+      QA_PROVIDER_SECRET_CI_LAB: ${QA_PROVIDER_SECRET_CI_LAB:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+        required: false
+      seaweedfs:
+        condition: service_healthy
+        required: false
+      keycloak:
+        condition: service_healthy
+        required: false
+      vault:
+        condition: service_healthy
+        required: false
+      ci-lab:
+        condition: service_healthy
+        required: false
+    expose:
+      - "23100"
+    volumes:
+      - qa-data:/data
+    secrets:
+      - source: vault_app_token
+        target: vault_app_token
+        mode: 0400
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:23100/health/ready', timeout=2).read()"
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+    networks:
+      - default
+      - object-storage
+      - identity
+      - secrets
+      - ci-lab
+
+  rabbitmq:
+    image: rabbitmq:4.3.5-management-alpine
+    profiles: ["worker"]
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-qa_platform_learning}
+      # The official image no longer supports *_FILE for these bootstrap
+      # variables. The value must come from the Git-ignored root .env.
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:-}
+      RABBITMQ_DEFAULT_VHOST: qa_platform_learning
+    expose:
+      - "5672"
+      - "15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 30s
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: ..
+      dockerfile: infra/docker/backend.Dockerfile
+    profiles: ["worker"]
+    command: ["python", "-m", "app.worker.main"]
+    environment:
+      APP_ENV: local-container
+      DEBUG: "false"
+      LOCAL_ONLY: "true"
+      DATABASE_RUNTIME_MODE: postgres_local_container
+      DATABASE_URL: ${COMPOSE_DATABASE_URL:?worker profile requires PostgreSQL URL in .env}
+      LOCAL_DATA_ROOT: /data
+      BROKER_RUNTIME_MODE: rabbitmq_local_container
+      BROKER_URL: >-
+        amqp://${RABBITMQ_DEFAULT_USER:-qa_platform_learning}:${RABBITMQ_DEFAULT_PASS:-}@rabbitmq:5672/qa_platform_learning
+      PROVIDER_RUNTIME_MODE: local_lab
+      PROVIDER_SELF_HOSTED_OWNERSHIP_ACKNOWLEDGED: "false"
+      WORKER_QUEUES: ${WORKER_QUEUES:-default}
+      WORKER_LEASE_SECONDS: ${WORKER_LEASE_SECONDS:-30}
+      WORKER_HEARTBEAT_SECONDS: ${WORKER_HEARTBEAT_SECONDS:-10}
+      WORKER_POLL_SECONDS: ${WORKER_POLL_SECONDS:-5}
+      WORKER_SHUTDOWN_GRACE_SECONDS: ${WORKER_SHUTDOWN_GRACE_SECONDS:-30}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    volumes:
+      - qa-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 40s
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ..
+      dockerfile: infra/docker/frontend.Dockerfile
+      args:
+        VITE_API_BASE_URL: ""
+    depends_on:
+      backend:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+        required: false
+    ports:
+      - "127.0.0.1:23010:8080"
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+      - /var/cache/nginx:size=32m,mode=0755
+      - /var/run:size=4m,mode=0755
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    networks:
+      - default
+      - identity
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    profiles: ["observability"]
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.enable-lifecycle
+    ports:
+      - "127.0.0.1:23090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus-data:/prometheus
+    depends_on:
+      backend:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+  alertmanager:
+    image: prom/alertmanager:v0.28.1
+    profiles: ["observability"]
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+    ports:
+      - "127.0.0.1:23093:9093"
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - alertmanager-data:/alertmanager
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+networks:
+  default:
+    name: qa-platform-learning-internal
+    internal: true
+  object-storage:
+    name: qa-platform-learning-object-storage-internal
+    internal: true
+  object-storage-core:
+    name: qa-platform-learning-object-storage-core-internal
+    internal: true
+  identity:
+    name: qa-platform-learning-identity-internal
+    internal: true
+  identity-core:
+    name: qa-platform-learning-identity-core-internal
+    internal: true
+  secrets:
+    name: qa-platform-learning-secrets-internal
+    internal: true
+  secrets-core:
+    name: qa-platform-learning-secrets-core-internal
+    internal: true
+  ci-lab:
+    name: qa-platform-learning-ci-lab-internal
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.30.60.0/28
+
+volumes:
+  qa-data:
+  postgres-data:
+  rabbitmq-data:
+  seaweedfs-data:
+    driver: local
+  keycloak-data:
+    driver: local
+  vault-data:
+    driver: local
+  ci-lab-data:
+    driver: local
+  prometheus-data:
+  alertmanager-data:
+
+secrets:
+  # Compose reads the value from the ignored host .env and mounts it only into
+  # the PostgreSQL container as /run/secrets/postgres_password.
+  postgres_password:
+    environment: POSTGRES_PASSWORD
+  # Both source values live only in the ignored root .env. The application
+  # receives the Vault token as a read-only file; root/unseal keys have no
+  # Compose secret and must never be mounted into an application container.
+  keycloak_bootstrap_admin_password:
+    environment: KEYCLOAK_BOOTSTRAP_ADMIN_PASSWORD
+  vault_app_token:
+    environment: VAULT_APP_TOKEN
+  # The ignored local environment is the single source for both consumers.
+  # Only CI Lab receives a secret file; the backend currently consumes this
+  # value through its strictly allowlisted environment adapter.
+  ci_lab_machine_token:
+    environment: QA_PROVIDER_SECRET_CI_LAB

@@ -1,0 +1,11 @@
+route:
+  receiver: local-null
+  group_by: [alertname]
+  group_wait: 10s
+  group_interval: 5m
+  repeat_interval: 4h
+
+receivers:
+  # Intentionally has no external receiver. A production operator must add a
+  # reviewed local mail/IM relay without committing its credential.
+  - name: local-null

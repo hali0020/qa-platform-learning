@@ -1,0 +1,15 @@
+**
+!frontend
+!frontend/index.html
+!frontend/package.json
+!frontend/pnpm-lock.yaml
+!frontend/pnpm-workspace.yaml
+!frontend/tsconfig.json
+!frontend/tsconfig.app.json
+!frontend/tsconfig.node.json
+!frontend/vite.config.ts
+!frontend/src
+!frontend/src/**
+!infra
+!infra/docker
+!infra/docker/nginx.conf

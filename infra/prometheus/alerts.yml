@@ -1,0 +1,46 @@
+groups:
+  - name: qa-platform-learning
+    rules:
+      - alert: QaPlatformBackendDown
+        expr: up{job="qa-platform-backend"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: QA platform backend cannot be scraped
+
+      - alert: QaPlatformHighServerErrorRate
+        expr: |
+          sum(rate(qa_http_requests_total{status_code=~"5.."}[5m]))
+          /
+          clamp_min(sum(rate(qa_http_requests_total[5m])), 0.000001)
+          > 0.05
+          and
+          sum(rate(qa_http_requests_total[5m])) > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Backend 5xx ratio has exceeded 5 percent
+
+      - alert: QaAutomationQueueBacklog
+        expr: qa_automation_tasks{state="queued"} > 50
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: More than fifty automation tasks are queued
+
+      - alert: QaAutomationDeadLetters
+        expr: qa_automation_tasks{state="dead_letter"} > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: Automation tasks entered the dead-letter state
+
+      - alert: QaProviderFailures
+        expr: increase(qa_provider_requests_total{outcome=~"failed|timeout"}[10m]) >= 5
+        labels:
+          severity: warning
+        annotations:
+          summary: CI provider calls are repeatedly failing
