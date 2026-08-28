@@ -21,7 +21,7 @@
 | 2 | 数据交换 | CSV/XLSX 模板、预检、摘要确认、部分导入、导出 | 幂等业务键、异步批任务、原子 Unit of Work |
 | 3 | 协作 | 评论、回复、安全附件、图片重编码、作者权限和本机对象存储适配 | 病毒扫描、通知与外部缺陷同步 |
 | 4 | 质量 | 指标口径、日/周趋势、套件覆盖 | 版本基线、历史事实表、需求/代码覆盖与质量门禁 |
-| 5 | CI Provider | Local、独立 Learning CI Lab、触发 Intent、审批门禁、Run Artifact、签名 Webhook 接收，以及 Jenkins/GitLab/BK-CI 的默认关闭适配 | CI Lab 主动 Webhook 投递、真实容器故障验收与自建产品沙箱联调 |
+| 5 | CI Provider | Local、独立 Learning CI Lab、触发 Intent、审批门禁、Run Artifact、持久签名 Webhook 主动收发，以及 Jenkins/GitLab/BK-CI 的默认关闭适配 | 固定容器双向 HTTP/故障验收与自建产品沙箱联调 |
 | 6 | 自动化资源 | 持久任务、租约/心跳、设备、Cron/misfire/overlap、独立 Worker/Scheduler、PG claim/CAS、任务唤醒 outbox | 真实 PostgreSQL/RabbitMQ 多实例与故障注入、Agent 身份 |
 | 7 | 交付运维 | Docker/Nginx/监控，可选 PostgreSQL、Vault 与内部网关边界 | 高可用、TLS、启动 Secret 注入、备份恢复与回滚 |
 
@@ -76,9 +76,11 @@ Worker/Broker 的详细语义见 [PHASE3_WORKER_AND_BROKER.md](PHASE3_WORKER_AND
 
 1. CI Run 增加审批记录和不可绕过的质量门禁；独立 `pipeline.approve` 权限、禁止触发人自批、事件幂等和 Webhook 防绕过均有测试。
 2. 测试报告/Artifact 元数据接入 Storage Port，显式处理 pending、ready、failed、deleted、摘要、上传/删除补偿和业务审计。
-3. 独立签名 Webhook 接收端使用专用 Secret、五分钟时间窗、常量时间 HMAC、事件唯一键与 16 KiB 上限；处理重放、乱序、序列缺口、终态回退和轮询对账。
+3. 独立签名 Webhook 接收端使用专用 Secret、五分钟时间窗、常量时间 HMAC、事件唯一键与 16 KiB 上限；处理重放、乱序、序列缺口、终态回退和轮询对账。签名内容还绑定 Connection/correlation，用于收敛回调与 Provider 结算竞态。
 4. QA→CI 触发改为持久 Intent + 独立 Dispatcher；HTTP 位于数据库事务外，租约与同一幂等键用于重试和未知结果收敛。
-5. CI Lab 当前没有主动 webhook delivery Worker，只完成独立接收链路。Jenkins/GitLab/BK-CI 和公司环境仍关闭。
+5. CI Lab 已有持久 Webhook subscription/outbox、独立 Worker 主动物化、
+   每 Run sequence、租约/CAS、退避/死信、安全列表/手工 retry 和快照 watermark
+   对账；目标只能是固定本机 QA。Jenkins/GitLab/BK-CI 和公司环境仍关闭。
 
 ### 六 C：已编码，等待真实容器验收
 
@@ -86,7 +88,8 @@ Worker/Broker 的详细语义见 [PHASE3_WORKER_AND_BROKER.md](PHASE3_WORKER_AND
 2. 独立 Scheduler 用 PostgreSQL `SKIP LOCKED` claim、数据库时钟、事务外 Cron 计算和版本/token CAS 结算；SQLite 仍是单进程教学模式。
 3. 任务与 wake-up outbox 同事务写入；独立 Outbox Dispatcher 在事务外发布固定无业务内容提示并 CAS 结算，Worker 仍由数据库 claim 授权。Web 不读取 Broker 配置。
 4. 当前机器没有 Docker，所以真实 PostgreSQL/RabbitMQ、多实例竞争、重复消息、Worker/Dispatcher 崩溃、租约过期、Broker/数据库中断和恢复尚未验收。
-5. Web 当前保持单实例，CI Lab 也保持单实例 SQLite；在备份恢复和真实故障验证前不宣称高可用。
+5. Web 当前保持单实例，CI Lab 保持单 API + 单 Webhook Worker 共享
+   SQLite；在备份恢复和真实故障验证前不宣称高可用。
 
 详细边界见 [PHASE6_CI_LAB.md](PHASE6_CI_LAB.md)，编排状态机和练习顺序见
 [PHASE6B_6C_ORCHESTRATION.md](PHASE6B_6C_ORCHESTRATION.md)。

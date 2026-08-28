@@ -148,7 +148,57 @@ def test_seaweedfs_profile_is_digest_pinned_and_local_only() -> None:
         assert str(forbidden_port) not in gateway_config
 
     backend = _compose_service_block(compose, "backend")
-    assert "networks:\n      - default\n      - object-storage" in backend
+    assert "networks:\n      default: {}\n      object-storage: {}" in backend
+
+
+def test_ci_lab_webhook_worker_has_one_fixed_internal_route_and_secret() -> None:
+    compose = (ROOT / "infra" / "compose.phase2.yaml").read_text(
+        encoding="utf-8"
+    )
+    ci_lab = _compose_service_block(compose, "ci-lab")
+    worker = _compose_service_block(compose, "ci-lab-webhook-worker")
+    backend = _compose_service_block(compose, "backend")
+
+    assert "app.ci_lab.webhook_worker_main" in worker
+    assert 'profiles: ["ci-lab"]' in worker
+    assert "CI_LAB_WEBHOOK_TARGET_MODE: compose_internal" in worker
+    assert "CI_LAB_WEBHOOK_TARGET_URL" not in worker
+    assert (
+        "CI_LAB_WEBHOOK_SECRET_FILE: /run/secrets/ci_lab_webhook_secret"
+        in worker
+    )
+    assert "CI_LAB_MACHINE_TOKEN_FILE" not in worker
+    assert "ci_lab_machine_token" not in worker
+    assert "source: ci_lab_webhook_secret" in worker
+    assert "- ci-lab-data:/data" in worker
+    assert "networks:\n      ci-lab:\n        ipv4_address: 172.30.60.4" in worker
+    assert "      default:" not in worker
+    assert "ports:" not in worker
+
+    assert "CI_LAB_WEBHOOK_SECRET" not in ci_lab
+    assert "ci_lab_webhook_secret" not in ci_lab
+    assert "ipv4_address: 172.30.60.2" in ci_lab
+    assert "ipv4_address: 172.30.60.3" in backend
+    assert "ipv4_address: 172.30.60.4" in worker
+    assert "subnet: 172.30.60.0/28" in compose
+
+    assert "ci_lab_webhook_secret:\n    environment: " \
+        "QA_PROVIDER_SECRET_CI_LAB_WEBHOOK" in compose
+
+    source_script = (ROOT / "scripts" / "start-ci-lab-source.ps1").read_text(
+        encoding="utf-8"
+    )
+    assert (
+        '$WebhookSecretPath = Join-Path $SecretRoot "webhook.secret"'
+        in source_script
+    )
+    assert "Write-OwnerOnlySecretFile -Path $WebhookSecretPath" in source_script
+    assert '"app.ci_lab.webhook_worker_main"' in source_script
+    assert "$LabExcludedValues" in source_script
+    assert "$WorkerExcludedValues" in source_script
+    assert "-WindowStyle Hidden" in source_script
+    assert "$WebhookWorkerProcess.Kill($true)" in source_script
+    assert "Remove-Item -LiteralPath $WebhookSecretPath -Force" in source_script
 
 
 def test_object_storage_defaults_to_local_filesystem_and_fixed_bucket() -> None:

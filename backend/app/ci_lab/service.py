@@ -6,16 +6,24 @@ import hashlib
 import hmac
 import json
 import re
+import secrets
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import insert, select, update
+from sqlalchemy import and_, exists, func, insert, or_, select, update
 from sqlalchemy.engine import RowMapping
 
-from app.ci_lab.database import CiLabDatabase, approvals, quality_gates, runs
+from app.ci_lab.database import (
+    CiLabDatabase,
+    approvals,
+    quality_gates,
+    runs,
+    webhook_deliveries,
+    webhook_subscriptions,
+)
 from app.ci_lab.models import (
     ApprovalView,
     DefinitionView,
@@ -28,12 +36,18 @@ from app.ci_lab.models import (
     RunView,
     StageView,
     TriggerRunRequest,
+    WebhookDeliveryStatus,
+    WebhookDeliveryView,
 )
 from app.ci_lab.registry import DefinitionRegistry, JobDefinition, PipelineDefinition
 
 
 _IDEMPOTENCY_KEY = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,199}\Z")
+_WORKER_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:@-]{0,199}\Z")
+_ERROR_CODE = re.compile(r"[a-z][a-z0-9_]{0,99}\Z")
 _QUALITY_GATE_POLICY_REVISIONS = {"local-quality-gate": 1}
+_WEBHOOK_MAX_BODY_BYTES = 16 * 1024
+_WEBHOOK_DEFAULT_MAX_ATTEMPTS = 8
 
 
 class CiLabError(Exception):
@@ -84,12 +98,18 @@ def _fingerprint(
     definition: PipelineDefinition,
     request: TriggerRunRequest,
 ) -> str:
-    payload = {
+    payload: dict[str, Any] = {
         "definition": definition.key,
         "definition_revision": definition.revision,
         "ref": request.ref,
         "variables": request.variables,
     }
+    # Keep the pre-webhook fingerprint byte-for-byte compatible for ordinary
+    # runs already persisted in a user's local database. The new routing
+    # binding affects idempotency only when it is actually present.
+    if request.webhook_connection_id is not None:
+        payload["webhook_connection_id"] = str(request.webhook_connection_id)
+        payload["correlation_id"] = request.correlation_id
     canonical = json.dumps(
         payload,
         ensure_ascii=False,
@@ -116,6 +136,20 @@ class _JobTimeline:
     finish_ms: int
 
 
+@dataclass(frozen=True, slots=True)
+class ClaimedWebhookDelivery:
+    id: str
+    run_id: str
+    connection_id: str
+    event_id: str
+    raw_body: bytes = field(repr=False)
+    worker_id: str
+    lease_token: str = field(repr=False)
+    version: int
+    attempts: int
+    max_attempts: int
+
+
 class CiLabService:
     def __init__(
         self,
@@ -139,6 +173,344 @@ class CiLabService:
     def list_definitions(self) -> list[DefinitionView]:
         return [self.registry[key].to_view() for key in sorted(self.registry)]
 
+    async def advance_webhook_runs_once(self, *, limit: int = 100) -> int:
+        """Advance subscribed runs and atomically persist changed snapshots."""
+
+        if not 1 <= limit <= 500:
+            raise CiLabValidationError("webhook refresh limit must be between 1 and 500")
+        now = self._now()
+        created = 0
+        async with self.database.write() as connection:
+            records = (
+                await connection.execute(
+                    select(runs)
+                    .join(
+                        webhook_subscriptions,
+                        webhook_subscriptions.c.run_id == runs.c.id,
+                    )
+                    .outerjoin(
+                        quality_gates,
+                        quality_gates.c.run_id == runs.c.id,
+                    )
+                    .where(
+                        runs.c.status.in_(
+                            (RunStatus.QUEUED.value, RunStatus.RUNNING.value)
+                        ),
+                        or_(
+                            quality_gates.c.run_id.is_(None),
+                            quality_gates.c.status
+                            != QualityGateStatus.WAITING_APPROVAL.value,
+                        ),
+                    )
+                    .order_by(runs.c.created_at, runs.c.id)
+                    .limit(limit)
+                )
+            ).mappings().all()
+            for record in records:
+                current, gate = await self._refresh_record(connection, record, now)
+                if await self._enqueue_webhook_if_changed(
+                    connection,
+                    current,
+                    gate,
+                    now=now,
+                ):
+                    created += 1
+        return created
+
+    async def claim_webhook_delivery(
+        self,
+        worker_id: str,
+        *,
+        lease_seconds: int = 30,
+    ) -> ClaimedWebhookDelivery | None:
+        """Claim one due delivery without retaining a SQL lock during HTTP."""
+
+        selected_worker = worker_id.strip()
+        if _WORKER_ID.fullmatch(selected_worker) is None:
+            raise CiLabValidationError("webhook worker_id is invalid")
+        if not 5 <= lease_seconds <= 300:
+            raise CiLabValidationError(
+                "webhook lease_seconds must be between 5 and 300"
+            )
+        now = self._now()
+        async with self.database.write() as connection:
+            # A worker may die during its final permitted attempt. Convert that
+            # expired lease into a visible dead letter before looking for work.
+            await connection.execute(
+                update(webhook_deliveries)
+                .where(
+                    webhook_deliveries.c.status
+                    == WebhookDeliveryStatus.CLAIMED.value,
+                    webhook_deliveries.c.lease_expires_at <= now,
+                    webhook_deliveries.c.attempts
+                    >= webhook_deliveries.c.max_attempts,
+                )
+                .values(
+                    status=WebhookDeliveryStatus.DEAD_LETTER.value,
+                    lease_owner=None,
+                    lease_token_hash=None,
+                    lease_expires_at=None,
+                    last_error_code="lease_expired",
+                    updated_at=now,
+                    dead_lettered_at=now,
+                    version=webhook_deliveries.c.version + 1,
+                )
+            )
+
+            lower = webhook_deliveries.alias("lower_webhook_delivery")
+            candidate = (
+                await connection.execute(
+                    select(webhook_deliveries)
+                    .where(
+                        or_(
+                            and_(
+                                webhook_deliveries.c.status.in_(
+                                    (
+                                        WebhookDeliveryStatus.PENDING.value,
+                                        WebhookDeliveryStatus.RETRY_WAIT.value,
+                                    )
+                                ),
+                                webhook_deliveries.c.available_at <= now,
+                            ),
+                            and_(
+                                webhook_deliveries.c.status
+                                == WebhookDeliveryStatus.CLAIMED.value,
+                                webhook_deliveries.c.lease_expires_at <= now,
+                            ),
+                        ),
+                        webhook_deliveries.c.attempts
+                        < webhook_deliveries.c.max_attempts,
+                        ~exists(
+                            select(1).where(
+                                lower.c.run_id == webhook_deliveries.c.run_id,
+                                lower.c.sequence < webhook_deliveries.c.sequence,
+                                lower.c.status
+                                != WebhookDeliveryStatus.DELIVERED.value,
+                            )
+                        ),
+                    )
+                    .order_by(
+                        webhook_deliveries.c.available_at,
+                        webhook_deliveries.c.created_at,
+                        webhook_deliveries.c.id,
+                    )
+                    .limit(1)
+                )
+            ).mappings().one_or_none()
+            if candidate is None:
+                return None
+
+            raw_body = str(candidate["payload_body"]).encode("utf-8")
+            digest = hashlib.sha256(raw_body).hexdigest()
+            if (
+                len(raw_body) > _WEBHOOK_MAX_BODY_BYTES
+                or not hmac.compare_digest(str(candidate["body_sha256"]), digest)
+            ):
+                await connection.execute(
+                    update(webhook_deliveries)
+                    .where(webhook_deliveries.c.id == candidate["id"])
+                    .values(
+                        status=WebhookDeliveryStatus.DEAD_LETTER.value,
+                        lease_owner=None,
+                        lease_token_hash=None,
+                        lease_expires_at=None,
+                        last_error_code="payload_integrity_error",
+                        updated_at=now,
+                        dead_lettered_at=now,
+                        version=int(candidate["version"]) + 1,
+                    )
+                )
+                return None
+
+            lease_token = secrets.token_urlsafe(32)
+            next_version = int(candidate["version"]) + 1
+            await connection.execute(
+                update(webhook_deliveries)
+                .where(
+                    webhook_deliveries.c.id == candidate["id"],
+                    webhook_deliveries.c.version == candidate["version"],
+                )
+                .values(
+                    status=WebhookDeliveryStatus.CLAIMED.value,
+                    attempts=int(candidate["attempts"]) + 1,
+                    lease_owner=selected_worker,
+                    lease_token_hash=hashlib.sha256(
+                        lease_token.encode("ascii")
+                    ).hexdigest(),
+                    lease_expires_at=now + timedelta(seconds=lease_seconds),
+                    last_error_code=None,
+                    updated_at=now,
+                    delivered_at=None,
+                    dead_lettered_at=None,
+                    version=next_version,
+                )
+            )
+            return ClaimedWebhookDelivery(
+                id=str(candidate["id"]),
+                run_id=str(candidate["run_id"]),
+                connection_id=str(candidate["connection_id"]),
+                event_id=str(candidate["event_id"]),
+                raw_body=raw_body,
+                worker_id=selected_worker,
+                lease_token=lease_token,
+                version=next_version,
+                attempts=int(candidate["attempts"]) + 1,
+                max_attempts=int(candidate["max_attempts"]),
+            )
+
+    async def complete_webhook_delivery(
+        self,
+        claimed: ClaimedWebhookDelivery,
+    ) -> WebhookDeliveryView:
+        now = self._now()
+        async with self.database.write() as connection:
+            record = await self._require_webhook_delivery_lease(
+                connection,
+                claimed,
+                now,
+            )
+            values = {
+                "status": WebhookDeliveryStatus.DELIVERED.value,
+                "lease_owner": None,
+                "lease_token_hash": None,
+                "lease_expires_at": None,
+                "last_error_code": None,
+                "updated_at": now,
+                "delivered_at": now,
+                "dead_lettered_at": None,
+                "version": int(record["version"]) + 1,
+            }
+            await connection.execute(
+                update(webhook_deliveries)
+                .where(
+                    webhook_deliveries.c.id == claimed.id,
+                    webhook_deliveries.c.version == claimed.version,
+                )
+                .values(**values)
+            )
+            return self._webhook_delivery_view({**dict(record), **values})
+
+    async def fail_webhook_delivery(
+        self,
+        claimed: ClaimedWebhookDelivery,
+        *,
+        error_code: str,
+        retryable: bool,
+    ) -> WebhookDeliveryView:
+        if _ERROR_CODE.fullmatch(error_code) is None:
+            raise CiLabValidationError("webhook delivery error code is invalid")
+        now = self._now()
+        async with self.database.write() as connection:
+            record = await self._require_webhook_delivery_lease(
+                connection,
+                claimed,
+                now,
+            )
+            should_retry = retryable and int(record["attempts"]) < int(
+                record["max_attempts"]
+            )
+            values = {
+                "status": (
+                    WebhookDeliveryStatus.RETRY_WAIT.value
+                    if should_retry
+                    else WebhookDeliveryStatus.DEAD_LETTER.value
+                ),
+                "available_at": (
+                    now
+                    + timedelta(
+                        seconds=min(300, 2 ** max(0, int(record["attempts"]) - 1))
+                    )
+                    if should_retry
+                    else record["available_at"]
+                ),
+                "lease_owner": None,
+                "lease_token_hash": None,
+                "lease_expires_at": None,
+                "last_error_code": error_code,
+                "updated_at": now,
+                "delivered_at": None,
+                "dead_lettered_at": None if should_retry else now,
+                "version": int(record["version"]) + 1,
+            }
+            await connection.execute(
+                update(webhook_deliveries)
+                .where(
+                    webhook_deliveries.c.id == claimed.id,
+                    webhook_deliveries.c.version == claimed.version,
+                )
+                .values(**values)
+            )
+            return self._webhook_delivery_view({**dict(record), **values})
+
+    async def list_webhook_deliveries(
+        self,
+        *,
+        status: WebhookDeliveryStatus | None = None,
+        run_id: str | UUID | None = None,
+        limit: int = 100,
+    ) -> list[WebhookDeliveryView]:
+        if not 1 <= limit <= 500:
+            raise CiLabValidationError("webhook delivery limit must be between 1 and 500")
+        statement = select(webhook_deliveries)
+        if status is not None:
+            statement = statement.where(webhook_deliveries.c.status == status.value)
+        if run_id is not None:
+            statement = statement.where(webhook_deliveries.c.run_id == str(run_id))
+        statement = statement.order_by(
+            webhook_deliveries.c.created_at.desc(),
+            webhook_deliveries.c.id,
+        ).limit(limit)
+        async with self.database.read() as connection:
+            records = (await connection.execute(statement)).mappings().all()
+        return [self._webhook_delivery_view(record) for record in records]
+
+    async def retry_webhook_delivery(
+        self,
+        delivery_id: str | UUID,
+    ) -> WebhookDeliveryView:
+        selected_id = str(delivery_id)
+        now = self._now()
+        async with self.database.write() as connection:
+            record = (
+                await connection.execute(
+                    select(webhook_deliveries).where(
+                        webhook_deliveries.c.id == selected_id
+                    )
+                )
+            ).mappings().one_or_none()
+            if record is None:
+                raise CiLabNotFound("webhook delivery")
+            current = WebhookDeliveryStatus(str(record["status"]))
+            if current in {
+                WebhookDeliveryStatus.PENDING,
+                WebhookDeliveryStatus.RETRY_WAIT,
+            }:
+                return self._webhook_delivery_view(record)
+            if current != WebhookDeliveryStatus.DEAD_LETTER:
+                raise CiLabConflict(
+                    "only a dead-letter webhook delivery can be retried"
+                )
+            values = {
+                "status": WebhookDeliveryStatus.PENDING.value,
+                "attempts": 0,
+                "max_attempts": _WEBHOOK_DEFAULT_MAX_ATTEMPTS,
+                "available_at": now,
+                "lease_owner": None,
+                "lease_token_hash": None,
+                "lease_expires_at": None,
+                "last_error_code": None,
+                "updated_at": now,
+                "delivered_at": None,
+                "dead_lettered_at": None,
+                "version": int(record["version"]) + 1,
+            }
+            await connection.execute(
+                update(webhook_deliveries)
+                .where(webhook_deliveries.c.id == selected_id)
+                .values(**values)
+            )
+            return self._webhook_delivery_view({**dict(record), **values})
+
     async def trigger(
         self,
         definition_key: str,
@@ -147,6 +519,13 @@ class CiLabService:
     ) -> RunView:
         definition = self._require_definition(definition_key)
         selected_key = self._validate_idempotency_key(idempotency_key)
+        if (
+            request.correlation_id is not None
+            and not hmac.compare_digest(request.correlation_id, selected_key)
+        ):
+            raise CiLabValidationError(
+                "correlation_id must match the Idempotency-Key header"
+            )
         request_fingerprint = _fingerprint(definition, request)
         now = self._now()
 
@@ -168,6 +547,12 @@ class CiLabService:
                     connection,
                     previous,
                     now,
+                )
+                await self._enqueue_webhook_if_changed(
+                    connection,
+                    current,
+                    gate,
+                    now=now,
                 )
                 return await self._run_view(
                     connection,
@@ -209,10 +594,25 @@ class CiLabService:
                         updated_at=now,
                     )
                 )
+            if request.webhook_connection_id is not None:
+                await connection.execute(
+                    insert(webhook_subscriptions).values(
+                        run_id=run_id,
+                        connection_id=str(request.webhook_connection_id),
+                        correlation_id=request.correlation_id,
+                        created_at=now,
+                    )
+                )
             created = (
                 await connection.execute(select(runs).where(runs.c.id == run_id))
             ).mappings().one()
             gate = await self._quality_gate_record(connection, run_id)
+            await self._enqueue_webhook_if_changed(
+                connection,
+                created,
+                gate,
+                now=now,
+            )
             return await self._run_view(
                 connection,
                 created,
@@ -233,6 +633,12 @@ class CiLabService:
                 raise CiLabNotFound("run")
             definition = self._definition_for_record(record)
             current, gate = await self._refresh_record(connection, record, now)
+            await self._enqueue_webhook_if_changed(
+                connection,
+                current,
+                gate,
+                now=now,
+            )
             return await self._run_view(
                 connection,
                 current,
@@ -255,6 +661,12 @@ class CiLabService:
             current, gate = await self._refresh_record(connection, record, now)
             status = RunStatus(str(current["status"]))
             if status == RunStatus.CANCELLED:
+                await self._enqueue_webhook_if_changed(
+                    connection,
+                    current,
+                    gate,
+                    now=now,
+                )
                 return await self._run_view(
                     connection,
                     current,
@@ -307,6 +719,12 @@ class CiLabService:
                     .values(**gate_values)
                 )
                 gate = {**dict(gate), **gate_values}
+            await self._enqueue_webhook_if_changed(
+                connection,
+                cancelled,
+                gate,
+                now=cancelled_at,
+            )
             return await self._run_view(
                 connection,
                 cancelled,
@@ -353,6 +771,12 @@ class CiLabService:
                     raise CiLabConflict(
                         "approval event_id was reused with different input"
                     )
+                await self._enqueue_webhook_if_changed(
+                    connection,
+                    current,
+                    gate,
+                    now=now,
+                )
                 return await self._run_view(
                     connection,
                     current,
@@ -430,14 +854,22 @@ class CiLabService:
             await connection.execute(
                 update(runs)
                 .where(runs.c.id == selected_id)
-                .values(**run_values)
+                    .values(**run_values)
+            )
+            final_run = {**dict(current), **run_values}
+            final_gate = {**dict(gate), **gate_values}
+            await self._enqueue_webhook_if_changed(
+                connection,
+                final_run,
+                final_gate,
+                now=decision_at,
             )
             return await self._run_view(
                 connection,
-                {**dict(current), **run_values},
+                final_run,
                 definition,
                 now,
-                gate={**dict(gate), **gate_values},
+                gate=final_gate,
                 replayed=False,
             )
 
@@ -571,6 +1003,184 @@ class CiLabService:
                 gate = {**dict(gate), **gate_values}
         return current, gate
 
+    async def _enqueue_webhook_if_changed(
+        self,
+        connection,
+        record: RowMapping | dict[str, Any],
+        gate: RowMapping | dict[str, Any] | None,
+        *,
+        now: datetime,
+    ) -> bool:
+        values = dict(record)
+        run_id = str(values["id"])
+        subscription = (
+            await connection.execute(
+                select(webhook_subscriptions).where(
+                    webhook_subscriptions.c.run_id == run_id
+                )
+            )
+        ).mappings().one_or_none()
+        if subscription is None:
+            return False
+
+        latest = (
+            await connection.execute(
+                select(webhook_deliveries)
+                .where(webhook_deliveries.c.run_id == run_id)
+                .order_by(webhook_deliveries.c.sequence.desc())
+                .limit(1)
+            )
+        ).mappings().one_or_none()
+        public_status = self._public_run_status(values, gate)
+        message = values["message"]
+        if latest is not None and (
+            str(latest["normalized_status"]) == public_status.value
+            and latest["message"] == message
+        ):
+            return False
+
+        sequence = 1 if latest is None else int(latest["sequence"]) + 1
+        occurred_at = _aware(values["updated_at"])
+        if gate is not None and gate["updated_at"] is not None:
+            occurred_at = max(occurred_at, _aware(gate["updated_at"]))
+        if latest is not None:
+            occurred_at = max(occurred_at, _aware(latest["occurred_at"]))
+        occurred_at = max(occurred_at, _aware(now))
+        payload = {
+            "connection_id": str(subscription["connection_id"]),
+            "correlation_id": str(subscription["correlation_id"]),
+            "external_id": run_id,
+            "message": message,
+            "occurred_at": occurred_at.isoformat(),
+            "sequence": sequence,
+            "status": public_status.value,
+        }
+        raw_body = json.dumps(
+            payload,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+        if len(raw_body) > _WEBHOOK_MAX_BODY_BYTES:
+            raise RuntimeError("CI Lab generated an oversized webhook body")
+        event_id = f"ci-lab-{uuid4().hex}"
+        await connection.execute(
+            insert(webhook_deliveries).values(
+                id=str(uuid4()),
+                run_id=run_id,
+                connection_id=str(subscription["connection_id"]),
+                event_id=event_id,
+                sequence=sequence,
+                occurred_at=occurred_at,
+                normalized_status=public_status.value,
+                message=message,
+                payload_body=raw_body.decode("utf-8"),
+                body_sha256=hashlib.sha256(raw_body).hexdigest(),
+                status=WebhookDeliveryStatus.PENDING.value,
+                attempts=0,
+                max_attempts=_WEBHOOK_DEFAULT_MAX_ATTEMPTS,
+                available_at=_aware(now),
+                lease_owner=None,
+                lease_token_hash=None,
+                lease_expires_at=None,
+                last_error_code=None,
+                version=0,
+                created_at=_aware(now),
+                updated_at=_aware(now),
+                delivered_at=None,
+                dead_lettered_at=None,
+            )
+        )
+        return True
+
+    @staticmethod
+    def _public_run_status(
+        record: RowMapping | dict[str, Any],
+        gate: RowMapping | dict[str, Any] | None,
+    ) -> RunStatus:
+        if gate is not None and QualityGateStatus(str(gate["status"])) == (
+            QualityGateStatus.WAITING_APPROVAL
+        ):
+            return RunStatus.WAITING_APPROVAL
+        return RunStatus(str(record["status"]))
+
+    async def _require_webhook_delivery_lease(
+        self,
+        connection,
+        claimed: ClaimedWebhookDelivery,
+        now: datetime,
+    ) -> RowMapping:
+        record = (
+            await connection.execute(
+                select(webhook_deliveries).where(
+                    webhook_deliveries.c.id == claimed.id
+                )
+            )
+        ).mappings().one_or_none()
+        expected_hash = hashlib.sha256(
+            claimed.lease_token.encode("ascii")
+        ).hexdigest()
+        if record is None:
+            raise CiLabNotFound("webhook delivery")
+        if (
+            str(record["status"]) != WebhookDeliveryStatus.CLAIMED.value
+            or str(record["lease_owner"]) != claimed.worker_id
+            or record["lease_token_hash"] is None
+            or not hmac.compare_digest(str(record["lease_token_hash"]), expected_hash)
+            or record["lease_expires_at"] is None
+            or _aware(record["lease_expires_at"]) <= _aware(now)
+            or int(record["version"]) != claimed.version
+        ):
+            raise CiLabConflict("webhook delivery lease is invalid or expired")
+        return record
+
+    @staticmethod
+    def _webhook_delivery_view(
+        record: RowMapping | dict[str, Any],
+    ) -> WebhookDeliveryView:
+        values = dict(record)
+        return WebhookDeliveryView(
+            id=str(values["id"]),
+            run_id=str(values["run_id"]),
+            connection_id=UUID(str(values["connection_id"])),
+            event_id=str(values["event_id"]),
+            sequence=int(values["sequence"]),
+            occurred_at=_aware(values["occurred_at"]),
+            normalized_status=RunStatus(str(values["normalized_status"])),
+            status=WebhookDeliveryStatus(str(values["status"])),
+            attempts=int(values["attempts"]),
+            max_attempts=int(values["max_attempts"]),
+            available_at=_aware(values["available_at"]),
+            lease_owner=(
+                str(values["lease_owner"])
+                if values["lease_owner"] is not None
+                else None
+            ),
+            lease_expires_at=(
+                _aware(values["lease_expires_at"])
+                if values["lease_expires_at"] is not None
+                else None
+            ),
+            last_error_code=(
+                str(values["last_error_code"])
+                if values["last_error_code"] is not None
+                else None
+            ),
+            version=int(values["version"]),
+            created_at=_aware(values["created_at"]),
+            updated_at=_aware(values["updated_at"]),
+            delivered_at=(
+                _aware(values["delivered_at"])
+                if values["delivered_at"] is not None
+                else None
+            ),
+            dead_lettered_at=(
+                _aware(values["dead_lettered_at"])
+                if values["dead_lettered_at"] is not None
+                else None
+            ),
+        )
+
     @staticmethod
     async def _quality_gate_record(connection, run_id: str) -> RowMapping | None:
         return (
@@ -597,11 +1207,7 @@ class CiLabService:
             else None
         )
         status = RunStatus(str(values["status"]))
-        public_status = status
-        if gate is not None and QualityGateStatus(str(gate["status"])) == (
-            QualityGateStatus.WAITING_APPROVAL
-        ):
-            public_status = RunStatus.WAITING_APPROVAL
+        public_status = self._public_run_status(values, gate)
         started_at = (
             _aware(values["started_at"])
             if values["started_at"] is not None
@@ -646,6 +1252,14 @@ class CiLabService:
             )
             for item in approval_rows
         ]
+        webhook_sequence = int(
+            (
+                await connection.execute(
+                    select(func.coalesce(func.max(webhook_deliveries.c.sequence), 0))
+                    .where(webhook_deliveries.c.run_id == str(values["id"]))
+                )
+            ).scalar_one()
+        )
         if gate is None:
             quality_gate = QualityGateView(
                 required=False,
@@ -671,6 +1285,15 @@ class CiLabService:
                     else None
                 ),
             )
+        metadata = {
+            "definition": definition.key,
+            "definition_revision": definition.revision,
+            "ref": values["ref"],
+            "stage_count": len(definition.stages),
+            "deterministic": True,
+        }
+        if webhook_sequence > 0:
+            metadata["webhook_sequence"] = webhook_sequence
         return RunView(
             id=str(values["id"]),
             definition=definition.key,
@@ -678,13 +1301,7 @@ class CiLabService:
             status=public_status,
             web_url=None,
             message=values["message"],
-            metadata={
-                "definition": definition.key,
-                "definition_revision": definition.revision,
-                "ref": values["ref"],
-                "stage_count": len(definition.stages),
-                "deterministic": True,
-            },
+            metadata=metadata,
             created_at=created_at,
             updated_at=_aware(values["updated_at"]),
             started_at=started_at,
@@ -864,6 +1481,7 @@ class CiLabService:
 
 
 __all__ = [
+    "ClaimedWebhookDelivery",
     "CiLabConflict",
     "CiLabError",
     "CiLabNotFound",

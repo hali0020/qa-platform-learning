@@ -1089,8 +1089,35 @@ class PersistentRuntimeService:
             intent.updated_at = now
             intent.completed_at = now
             record.dispatch_status = "dispatched"
-            record.reconciliation_required = False
-            self._apply_provider_run_snapshot(record, run, source="dispatch")
+            response_watermark = run.metadata.get("webhook_sequence")
+            response_has_valid_watermark = (
+                isinstance(response_watermark, int)
+                and not isinstance(response_watermark, bool)
+                and 0 <= response_watermark <= 2_147_483_647
+            )
+            webhook_snapshot_is_newer = (
+                record.last_provider_sequence > 0
+                and (
+                    not response_has_valid_watermark
+                    or int(response_watermark) < record.last_provider_sequence
+                )
+            )
+            external_identity_conflicts = (
+                record.external_id is not None
+                and record.external_id != run.external_id
+            )
+            if webhook_snapshot_is_newer or external_identity_conflicts:
+                # A signed callback can win the race with the trigger HTTP
+                # response.  Complete the durable intent, but never let that
+                # older response overwrite a newer callback snapshot or
+                # replace the external identity already bound by correlation.
+                if external_identity_conflicts:
+                    record.reconciliation_required = True
+                record.updated_at = now
+                record.version += 1
+            else:
+                record.reconciliation_required = False
+                self._apply_provider_run_snapshot(record, run, source="dispatch")
             approvals = await self._approval_views(session, record.id)
             return self._provider_run_view(record, approvals)
 
@@ -1114,6 +1141,23 @@ class PersistentRuntimeService:
                 raise InvalidStateError("触发 Intent 在失败结算期间被删除")
             self._require_provider_intent_lease(intent, claimed)
             now = _utc_now()
+            if run.external_id is not None and run.last_provider_sequence > 0:
+                # A verified callback is stronger evidence than a timeout or
+                # transport error observed by the trigger caller.  The event
+                # may have arrived while provider.trigger() was still waiting.
+                # Converge the intent without regressing the callback-applied
+                # run to retry_wait/unknown/failed.
+                intent.status = "succeeded"
+                intent.lease_owner = None
+                intent.lease_token_hash = None
+                intent.lease_expires_at = None
+                intent.last_error_code = None
+                intent.updated_at = now
+                intent.completed_at = now
+                run.dispatch_status = "dispatched"
+                run.updated_at = now
+                run.version += 1
+                return
             should_retry = retryable and intent.attempts < intent.max_attempts
             intent.status = "retry_wait" if should_retry else (
                 "unknown" if retryable else "failed"
@@ -1208,14 +1252,30 @@ class PersistentRuntimeService:
             payload = ProviderWebhookPayload.model_validate_json(raw_body)
         except ValidationError:
             raise BusinessValidationError("Webhook 事件格式无效") from None
+        if str(payload.connection_id) != connection_id:
+            raise AuthorizationError("Webhook 回调绑定与接收路径不一致")
 
         received_at = _utc_now()
         async with self.repository.transaction() as session:
+            current_connection = await session.scalar(
+                select(ProviderConnectionRecord)
+                .where(ProviderConnectionRecord.id == connection_id)
+                .with_for_update()
+            )
+            if current_connection is None:
+                raise NotFoundError("集成连接", connection_id)
+            if (
+                ProviderKind(current_connection.kind) != ProviderKind.LEARNING_CI
+                or not current_connection.enabled
+                or current_connection.webhook_secret_env_var
+                != CI_LAB_WEBHOOK_SECRET_NAME
+            ):
+                raise AuthorizationError("Webhook 连接状态已变化")
             previous = await session.scalar(
                 select(ProviderWebhookEventRecord).where(
                     ProviderWebhookEventRecord.connection_id == connection_id,
                     ProviderWebhookEventRecord.event_id == verified.event_id,
-                )
+                ).with_for_update()
             )
             if previous is not None:
                 if not hmac.compare_digest(
@@ -1241,43 +1301,91 @@ class PersistentRuntimeService:
                 select(ProviderRunRecord).where(
                     ProviderRunRecord.connection_id == connection_id,
                     ProviderRunRecord.external_id == payload.external_id,
-                )
+                ).with_for_update()
             )
+            if run is None:
+                run = await session.scalar(
+                    select(ProviderRunRecord).where(
+                        ProviderRunRecord.connection_id == connection_id,
+                        ProviderRunRecord.correlation_id == payload.correlation_id,
+                    ).with_for_update()
+                )
+                if run is not None:
+                    if run.external_id not in {None, payload.external_id}:
+                        raise ConflictError(
+                            "Webhook correlation_id 已绑定到不同运行"
+                        )
+                    if run.external_id is None:
+                        # The signed callback may beat the provider dispatcher's
+                        # HTTP-return transaction. Bind the same immutable run
+                        # instead of consuming the event as ignored.
+                        run.external_id = payload.external_id
+                        run.updated_at = received_at
+                        run.version += 1
+            if run is None:
+                # Do not persist an ignored receipt: the same event_id must be
+                # allowed to retry after a transient orchestration race.
+                raise ConflictError("Webhook 回调未关联到本地运行")
+            if run.correlation_id != payload.correlation_id:
+                raise ConflictError("Webhook correlation_id 与运行不匹配")
+
+            # The first receipt lookup can race on an absent row. Acquiring the
+            # provider Run lock serializes events for this run; repeat the
+            # lookup afterwards so an overlapping retry converges to duplicate
+            # instead of surfacing a database uniqueness error.
+            previous_after_lock = await session.scalar(
+                select(ProviderWebhookEventRecord).where(
+                    ProviderWebhookEventRecord.connection_id == connection_id,
+                    ProviderWebhookEventRecord.event_id == verified.event_id,
+                ).with_for_update()
+            )
+            if previous_after_lock is not None:
+                if not hmac.compare_digest(
+                    previous_after_lock.body_sha256,
+                    verified.body_sha256,
+                ):
+                    raise ConflictError("Webhook event_id 已绑定到不同内容")
+                return ProviderWebhookResult(
+                    event_id=verified.event_id,
+                    result="duplicate",
+                    run_id=previous_after_lock.run_id,
+                    reconciliation_required=bool(run.reconciliation_required),
+                )
+
             result = "ignored"
             reconciliation_required = False
-            if run is not None:
-                occurred_at = _aware(payload.occurred_at)
-                if payload.sequence <= run.last_provider_sequence:
-                    result = "stale"
-                elif payload.sequence != run.last_provider_sequence + 1:
-                    result = "reconcile_required"
-                    run.reconciliation_required = True
-                    run.updated_at = received_at
-                    run.version += 1
-                elif (
-                    run.last_provider_occurred_at is not None
-                    and occurred_at < _aware(run.last_provider_occurred_at)
-                ):
-                    result = "reconcile_required"
-                    run.reconciliation_required = True
-                    run.updated_at = received_at
-                    run.version += 1
-                elif self._apply_webhook_snapshot(run, payload):
-                    result = "applied"
-                    run.last_provider_sequence = payload.sequence
-                    run.last_provider_occurred_at = occurred_at
-                    run.reconciliation_required = False
-                else:
-                    result = "reconcile_required"
-                    run.reconciliation_required = True
-                    run.updated_at = received_at
-                    run.version += 1
-                reconciliation_required = run.reconciliation_required
+            occurred_at = _aware(payload.occurred_at)
+            if payload.sequence <= run.last_provider_sequence:
+                result = "stale"
+            elif payload.sequence != run.last_provider_sequence + 1:
+                result = "reconcile_required"
+                run.reconciliation_required = True
+                run.updated_at = received_at
+                run.version += 1
+            elif (
+                run.last_provider_occurred_at is not None
+                and occurred_at < _aware(run.last_provider_occurred_at)
+            ):
+                result = "reconcile_required"
+                run.reconciliation_required = True
+                run.updated_at = received_at
+                run.version += 1
+            elif self._apply_webhook_snapshot(run, payload):
+                result = "applied"
+                run.last_provider_sequence = payload.sequence
+                run.last_provider_occurred_at = occurred_at
+                run.reconciliation_required = False
+            else:
+                result = "reconcile_required"
+                run.reconciliation_required = True
+                run.updated_at = received_at
+                run.version += 1
+            reconciliation_required = run.reconciliation_required
 
             receipt = ProviderWebhookEventRecord(
                 id=str(uuid4()),
                 connection_id=connection_id,
-                run_id=run.id if run is not None else None,
+                run_id=run.id,
                 event_id=verified.event_id,
                 external_id=payload.external_id,
                 body_sha256=verified.body_sha256,
@@ -1293,7 +1401,7 @@ class PersistentRuntimeService:
             return ProviderWebhookResult(
                 event_id=verified.event_id,
                 result=result,
-                run_id=run.id if run is not None else None,
+                run_id=run.id,
                 reconciliation_required=reconciliation_required,
             )
 
@@ -2342,6 +2450,12 @@ class PersistentRuntimeService:
                 definition_id=connection.definition_ref,
                 bearer_token=secret,
                 policy=policy,
+                webhook_connection_id=(
+                    connection.id
+                    if connection.webhook_secret_env_var
+                    == CI_LAB_WEBHOOK_SECRET_NAME
+                    else None
+                ),
                 enabled=True,
             )
         if connection.base_url is None:
@@ -3106,6 +3220,19 @@ class PersistentRuntimeService:
         record.web_url = run.web_url
         record.message = run.message
         record.run_metadata = dict(run.metadata)
+        webhook_watermark = run.metadata.get("webhook_sequence")
+        if (
+            run.provider == ProviderKind.LEARNING_CI
+            and source in {"dispatch", "poll", "gate_decision"}
+            and isinstance(webhook_watermark, int)
+            and not isinstance(webhook_watermark, bool)
+            and 0 <= webhook_watermark <= 2_147_483_647
+            and webhook_watermark >= record.last_provider_sequence
+        ):
+            # A successful authoritative snapshot reconciles any missing
+            # callback events. Later delivery of those immutable events is
+            # safely classified as stale.
+            record.last_provider_sequence = webhook_watermark
         gate_status = run.quality_gate.status.value
         if gate_status == ProviderQualityGateStatus.NOT_REQUIRED.value:
             if run.raw_status == "waiting_approval":

@@ -56,6 +56,7 @@ _ALLOWED_TARGETS: set[tuple[str, str | None, int | None]] = {
     ("http", "localhost", 5173),
     ("http", "localhost", 23010),
     ("http", "172.30.60.2", 8080),
+    ("http", "172.30.60.3", 23100),
     ("http", "backend", 23100),
     ("http", "keycloak", 8080),
     ("http", "keycloak_core", None),

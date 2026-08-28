@@ -358,6 +358,48 @@ services:
       ci-lab:
         ipv4_address: 172.30.60.2
 
+  ci-lab-webhook-worker:
+    # The sender is a separate at-least-once worker. It shares only the lab's
+    # SQLite volume and the webhook signing key, and can reach only the fixed
+    # QA backend address on this repository-owned internal network.
+    build:
+      context: ..
+      dockerfile: infra/docker/ci-lab.Dockerfile
+    profiles: ["ci-lab"]
+    command: ["python", "-m", "app.ci_lab.webhook_worker_main"]
+    environment:
+      CI_LAB_DATABASE_PATH: /data/ci-lab.db
+      CI_LAB_WEBHOOK_SECRET_FILE: /run/secrets/ci_lab_webhook_secret
+      CI_LAB_WEBHOOK_TARGET_MODE: compose_internal
+      CI_LAB_WEBHOOK_WORKER_ID: ci-lab-compose-webhook-worker
+    secrets:
+      - source: ci_lab_webhook_secret
+        target: ci_lab_webhook_secret
+        uid: "10001"
+        gid: "10001"
+        mode: 0400
+    depends_on:
+      ci-lab:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    volumes:
+      - ci-lab-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 256m
+    pids_limit: 128
+    stop_grace_period: 20s
+    restart: unless-stopped
+    networks:
+      ci-lab:
+        ipv4_address: 172.30.60.4
+
   migration:
     # The only schema-changing process in Compose. Web, Worker and Scheduler
     # start in verify-only mode after this one-shot Job exits successfully.
@@ -513,11 +555,14 @@ services:
       start_period: 20s
     restart: unless-stopped
     networks:
-      - default
-      - object-storage
-      - identity
-      - secrets
-      - ci-lab
+      default: {}
+      object-storage: {}
+      identity: {}
+      secrets: {}
+      ci-lab:
+        # Fixed only inside the repository-owned /28. The webhook worker has
+        # no user-configurable destination and targets this exact address.
+        ipv4_address: 172.30.60.3
 
   rabbitmq:
     image: rabbitmq:4.3.5-management-alpine
@@ -859,7 +904,11 @@ secrets:
   vault_app_token:
     environment: VAULT_APP_TOKEN
   # The ignored local environment is the single source for both consumers.
-  # Only CI Lab receives a secret file; the backend currently consumes this
-  # value through its strictly allowlisted environment adapter.
+  # Only the CI Lab API receives this secret file; the backend consumes the
+  # same value through its strictly allowlisted environment adapter.
   ci_lab_machine_token:
     environment: QA_PROVIDER_SECRET_CI_LAB
+  # The independent webhook worker receives only this signing key. The CI Lab
+  # API never mounts it, and the worker never mounts the machine token above.
+  ci_lab_webhook_secret:
+    environment: QA_PROVIDER_SECRET_CI_LAB_WEBHOOK

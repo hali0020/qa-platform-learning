@@ -19,9 +19,13 @@
 ## 私有配置与连接清单
 
 - 根目录 `.env` 是唯一由人维护、需要复用的本机连接配置与普通实验凭据文件；它被 `.gitignore` 的 `.env*` 规则忽略，仓库只保留无私有值的 `.env.example`。前端使用同源 API，不维护第二份环境文件。
-- 平台账号、密码哈希和 QA 数据仍写入被忽略的 `.data` 数据库；Vault init/unseal/root 材料必须留在 ACL 保护的 `.data/secrets`，CI Lab 一次性 Token 留在内存或 owner-only 临时文件。不要为了集中配置而把这些运行数据或高敏感、短生命周期材料复制到 `.env`。
+- 平台账号、密码哈希和 QA 数据仍写入被忽略的 `.data` 数据库；Vault init/unseal/root 材料必须留在 ACL 保护的 `.data/secrets`，CI Lab 一次性 Bearer/HMAC Secret 留在内存或 owner-only 临时文件。不要为了集中配置而把这些运行数据或高敏感、短生命周期材料复制到 `.env`。
 - 当前仓库不包含任何指向公司或外部系统的域名、API Base URL、数据库/消息队列连接串、共享盘路径、Token 文件或机器专属绝对路径；测试拒绝样例只使用不可解析的 `.invalid`、保留的 `.test` 名称或明确标注的 `untrusted` 路径。
-- 运行代码和部署文件中允许出现的目标只有：`127.0.0.1`/`localhost`、项目固定 CI Lab 地址 `172.30.60.2:8080`，以及 Compose 内由本仓库创建的 `postgres`、`rabbitmq`、`seaweedfs`、`keycloak`、`vault`、`backend` 服务。
+- 运行代码和部署文件中允许出现的目标只有：`127.0.0.1`/`localhost`、
+  项目 CI 专网的固定 CI Lab `172.30.60.2:8080`、QA backend
+  `172.30.60.3:23100` 和 Webhook Worker `172.30.60.4`，以及 Compose 内由本仓库
+  创建的 `postgres`、`rabbitmq`、`seaweedfs`、`keycloak`、`vault`、`backend`
+  服务。不能为了通过清单测试而加入公司或公网目标。
 - 文档中的公网网址只指向所用开源组件的官方说明、发布页或包仓库，不是应用运行时 API；应用不会自动请求这些文档网址。下载依赖或镜像是人工执行的构建动作。
 - Jenkins、GitLab 与 BK-CI 适配器是无预置地址的通用教学代码。默认模式在 Secret、DNS 和 HTTP 之前拒绝它们；日后也只允许连接我们自己安装的实验实例。
 - `backend/tests/test_connection_inventory.py` 会扫描提交的运行代码与部署配置中的常见 URL/连接串形式。新增任何不在精确本地清单中的匹配项都会使测试失败；它是运行时连接回归门禁，不替代 Secret/PII 扫描，也不要通过扩充清单来接入现有公司服务。
@@ -49,7 +53,21 @@
 
 - 默认 `PROVIDER_RUNTIME_MODE=local_lab`；Learning CI、Jenkins、GitLab 和 BK-CI 会在读取 Secret、DNS 或 HTTP 之前被拒绝。
 - 只存在 `local_lab`、固定目标的 `ci_lab_local` 与通用自建产品实验室 `self_hosted_lab` 三种模式，不提供连接任意 external/public 或公司系统的模式。
-- `ci_lab_local` 只能在 `local`/`local-container`/`test` 使用 `learning_ci`，只允许固定 Secret 名 `QA_PROVIDER_SECRET_CI_LAB`。宿主机目标固定为 `127.0.0.1:23020/32`，容器目标固定为 `172.30.60.2:8080/32`；连接表必须把 `base_url` 和 config 留空，通用 Host/Port/CIDR/HTTP 开关必须保持默认空值。
+- `ci_lab_local` 只能在 `local`/`local-container`/`test` 使用 `learning_ci`，出站
+  Bearer 只允许固定 Secret 名 `QA_PROVIDER_SECRET_CI_LAB`，回调 HMAC 只允许
+  `QA_PROVIDER_SECRET_CI_LAB_WEBHOOK`。QA→CI 宿主机目标固定为
+  `127.0.0.1:23020`，容器目标固定为 `172.30.60.2:8080/32`；CI→QA 宿主机
+  目标固定为 `127.0.0.1:23100`，容器只允许
+  `172.30.60.4 → 172.30.60.3:23100`。连接表必须把 `base_url` 和 config 留空，
+  通用 Host/Port/CIDR/HTTP 开关必须保持默认空值。
+- 开启回调的触发必须成对提交 Connection UUID 和 correlation ID，且后者必须
+  与 `Idempotency-Key` 一致。签名 body 重复携带该绑定；QA 必须核对路径
+  Connection、已启用类型/固定 Secret 引用和本地 Run correlation。找不到 Run 时不得
+  消费事件收据，否则合法重试会被误判为 duplicate。
+- Webhook Worker 不允许任意 URL 环境变量，关闭环境代理和重定向，并限制
+  超时/响应大小。它只挂载 HMAC Secret 文件；CI Lab API 只挂载 Bearer Token
+  文件。列表/手工 retry 机器 API 不返回 body、签名、目标、Secret、摘要或租约
+  token。
 - Learning CI 的私网明文 HTTP 例外只接受上述精确 IP literal；不能借此给域名、Jenkins、GitLab 或 BK-CI 开 HTTP。CI Lab 机器 Token 必须为 32–512 位可见 ASCII，Authorization 头有硬上限并使用 bytes 常量时间比较；所有 HTTP 方法的请求体均限制为 16 KiB。
 - `self_hosted_lab` 必须通过 `PROVIDER_SELF_HOSTED_OWNERSHIP_ACKNOWLEDGED=true` 确认目标由我们自己搭建，并同时配置精确主机、端口、私网/环回 CIDR 和 Secret 名称 allowlist。
 - `APP_ENV=local`、`test` 等非容器模式即使完成确认也只允许 `localhost`/环回 IP 与环回 CIDR；RFC1918/ULA 私网只允许 `APP_ENV=local-container` 的内部容器网络。测试中的私网地址只能配合 MockTransport，不会获得真实网络许可。
@@ -71,16 +89,23 @@
 - Compose Web 当前固定单实例。任务、Scheduler、Provider Intent 和 task wake-up
   outbox 的特定路径已有数据库 claim/CAS，但进程内业务锁、本机附件与跨 Repository
   提交仍未完成多 Web 审计。
-- CI Lab 使用独立单进程 SQLite，固定 Definition 不执行用户代码；它的
+- CI Lab 使用独立 SQLite、单 API 进程与单 Webhook Worker，固定 Definition 不执行
+  用户代码；它的
   Bearer/幂等/质量门禁不等于 TLS、分布式 Executor 或高可用。QA 端已用持久 Trigger
   Intent + 独立 Dispatcher 把 Provider HTTP 移出数据库事务，并以未知状态/轮询对账
   收敛，但真实进程崩溃窗尚未容器验收。
 - CI Lab 的出站 Bearer 与入站 Webhook HMAC Secret 分离。独立 Webhook 接收端不使用
   浏览器 Session/CSRF，先限制 16 KiB 原始 body，再做五分钟时间窗、常量时间 HMAC、
-  事件唯一键和 sequence reducer；CI Lab 当前没有主动 delivery Worker。
+  事件唯一键和 sequence reducer。CI Lab 把状态与不可变 body 同事务写入持久
+  Outbox，独立 Worker 主动物化、按 Run sequence 租约 claim、事务外 HMAC 投递、
+  version/token 摘要结算、退避与死信。轮询快照的 `webhook_sequence` watermark
+  用于对账缺失回调；该机制不承诺恰好一次。
 - Web 不持有 RabbitMQ 连接或凭据。任务和 wake-up outbox 同事务提交，独立
   Dispatcher 只发布无业务内容提示，数据库 claim 才能授予 Worker 执行权。
-- 当前机器没有 Docker，因此 PostgreSQL 容器尚未做真实启动、迁移、重启恢复和 readiness 联调；已有的是配置边界、PostgreSQL 方言迁移生成与 ORM 编译等离线验证。
+- 当前机器没有 Docker，因此 PostgreSQL 容器与 CI Lab 固定 IP 双向 HTTP 尚未做
+  真实启动、迁移、重启恢复和 readiness 联调；Webhook Worker 崩溃、租约过期、
+  重试/死信/手工恢复也未实机验收。已有的是配置边界、快照/Outbox/Worker 契约、
+  PostgreSQL 方言迁移生成与 ORM 编译等离线/自动化验证。
 - 尚无 SQLite 与 PostgreSQL 之间的数据搬迁工具；一次性 migration Job 已编码，但
   没有真实多实例、备份恢复或故障切换保证。不能因为已有 Compose profile 就宣称
   已生产化或 HA。

@@ -99,7 +99,8 @@ try {
             --env-file $EnvironmentFile `
             -f $ComposeFile `
             --profile ci-lab `
-            up --build --detach --force-recreate ci-lab backend frontend
+            up --build --detach --force-recreate `
+            ci-lab backend ci-lab-webhook-worker frontend
         if ($LASTEXITCODE -ne 0) {
             throw "CI Lab 本机容器启动失败。"
         }
@@ -110,7 +111,8 @@ try {
 
     Write-Host "CI Lab 已请求启动：http://127.0.0.1:23020/health/live"
     Write-Host "QA 平台入口：http://127.0.0.1:23010/"
-    Write-Host "机器 Token 未写入脚本或输出；请勿运行会展开环境值的 compose config。"
+    Write-Host "Webhook 投递 Worker 已启动，仅连接仓库自建的内部网络。"
+    Write-Host "Token 与 Webhook Secret 未写入脚本或输出；请勿运行会展开环境值的 compose config。"
 }
 finally {
     $MachineToken = $null

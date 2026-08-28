@@ -22,9 +22,15 @@ pending ──存储与摘要确认──> ready ──quarantine + 元数据提
    └─上传/结算失败──> failed ──幂等清理────────────────────> deleted
 
 Webhook Receipt
-新事件 ──> applied | stale | ignored | reconcile_required
+新事件 ──> applied | stale | reconcile_required
 同 event_id + 同摘要 ──> duplicate
 同 event_id + 不同摘要 ──> conflict
+无绑定 Run ──> conflict（不消费收据，允许原事件重试）
+
+CI Lab Webhook Delivery Outbox
+pending ──claim──> claimed ──签名确认──> delivered
+                         ├─可重试──> retry_wait ─┐
+                         └─非可重试/耗尽──> dead_letter ──manual retry──> pending
 
 Task Wake-up Outbox
 pending/retry_wait ──claim──> claimed ──publish confirm──> published
@@ -70,6 +76,7 @@ claim，Handler 仍须幂等。消息丢失由数据库轮询兜底，publish �
 | Scheduler | PostgreSQL `SKIP LOCKED` claim、事务外算 Cron、CAS 写 Fire/Task | 依赖进程锁协调副本 |
 | Outbox Dispatcher | claim wake-up outbox、发布固定 RabbitMQ 提示、CAS 结算 | 发布任务 Payload |
 | Worker | 从 PostgreSQL claim、心跳续租、运行固定幂等 Handler | 把 RabbitMQ 消息当执行授权 |
+| CI Lab Webhook Worker | 物化已订阅 Run、claim Lab Outbox、事务外 HMAC 投递、租约结算 | 接受任意 URL、共享 QA 业务数据库、绕过 sequence |
 
 Compose 的目标顺序是 `migration → Web/Worker/Scheduler/Dispatcher`。Web、Worker、
 Scheduler 和 Dispatcher 使用 verify-only schema 模式，不能并发修改结构。源码
@@ -79,11 +86,20 @@ SQLite 模式保留手工 tick/dispatch 教学入口，但不能据此推导多�
 
 Webhook 路由不使用浏览器 Session/CSRF。它先按原始字节执行 16 KiB 上限，再用
 独立 Secret 校验固定五分钟时间窗与 HMAC；事件唯一键、body SHA-256、sequence 和
-occurred-at 用于识别重放、内容冲突、旧事件、缺口和时间回退。任何缺口或非法状态
-推进只标记 `reconciliation_required`，由后续轮询读取 CI 权威快照。
+occurred-at 用于识别重放、内容冲突、旧事件、缺口和时间回退。签名 body 同时绑定
+Connection UUID 与 correlation ID；接收时重新核对路径、已启用连接和本地
+Run。回调早于 Provider HTTP 结算时，可以通过 correlation 绑定同一 Run；
+无匹配 Run 不写收据，使相同 event ID/body 仍可重试。
 
-CI Lab 当前没有主动 webhook delivery Worker，所以现阶段用自动化测试或本机测试
-客户端练习接收端，不应写成“CI Lab 已主动推送”。
+CI Lab 把状态变化和不可变 Webhook body 同事务写入自有 SQLite Outbox。独立
+Worker 主动物化非终态订阅，再按每 Run sequence 顺序 claim；HTTP 位于事务外，
+结算校验 owner、token 摘要、version 和租约。暂时错误指数退避，不可重试错误与
+耗尽尝试进入死信；机器 API 可列出安全元数据并手工恢复死信。Worker 的
+目标不能配置，只能是宿主机环回或 Compose 专网中的固定 QA 地址。
+
+任何缺口或非法状态推进仍只标记 `reconciliation_required`。成功的权威
+poll/gate-decision 快照可用 CI Lab `webhook_sequence` watermark 推进 reducer
+并清除标记；之后到达的旧事件是 stale，不会倒退状态。
 
 Artifact 元数据和对象内容不能由一个 SQL 事务原子提交。因此先写 `pending`，对象
 保存和摘要确认后才转 `ready`；失败转 `failed` 并尽力清理。删除先 quarantine，
@@ -99,13 +115,16 @@ Artifact 元数据和对象内容不能由一个 SQL 事务原子提交。因此
    以及成功 Webhook 不能绕过门禁。
 4. 上传有效 JSON/JUnit XML 和损坏 XML，观察 Artifact 状态、SHA-256、审计、下载
    安全头与删除补偿。
-5. 生成独立签名事件，依次测试正常、重复、同 ID 不同内容、stale、sequence gap
-   和终态回退，再用轮询消除对账标记。
-6. 用 SQLite 单进程测试 Scheduler claim/CAS 和 wake-up outbox 状态机，明确这只
+5. 让 CI Lab Worker 自动物化并投递状态，断开 QA 观察 `retry_wait`、有界
+   退避和死信，用安全列表/手工 retry 恢复；再人工构造重复、同 ID
+   不同内容、stale、sequence gap 和终态回退。
+6. 制造 sequence gap 后执行 poll，验证快照 watermark 清除对账标记，且较晚的
+   旧回调不会覆盖权威快照。
+7. 用 SQLite 单机测试 Scheduler claim/CAS 和 wake-up outbox 状态机，明确这只
    验证算法与 SQL 形状。
-7. 在有 Docker 的个人隔离机器，从空卷启动真实 PostgreSQL/RabbitMQ，再做多实例
+8. 在有 Docker 的个人隔离机器，从空卷启动真实 PostgreSQL/RabbitMQ，再做多实例
    claim、重复提示、Worker/Dispatcher 强杀、租约过期、Broker/数据库中断恢复。
-8. 最后设计备份/成对恢复、RPO/RTO 和回滚；全部实测前保持 Web 单实例且不宣称
+9. 最后设计备份/成对恢复、RPO/RTO 和回滚；全部实测前保持 Web 单实例且不宣称
    高可用。
 
 容器练习前先看 [NEXT_DEVELOPMENT.md](NEXT_DEVELOPMENT.md) 的未完成清单和

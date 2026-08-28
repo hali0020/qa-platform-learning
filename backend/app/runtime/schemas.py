@@ -6,6 +6,7 @@ import json
 import re
 from datetime import datetime
 from typing import Any, Literal
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -237,8 +238,14 @@ class ProviderTriggerIntentView(BaseModel):
 
 
 class ProviderWebhookPayload(StrictSchema):
+    connection_id: UUID
+    correlation_id: str = Field(
+        min_length=1,
+        max_length=200,
+        pattern=r"[A-Za-z0-9][A-Za-z0-9._:-]{0,199}",
+    )
     external_id: str = Field(min_length=1, max_length=300, pattern=r"[A-Za-z0-9_-]{1,300}")
-    sequence: int = Field(ge=1)
+    sequence: int = Field(ge=1, le=2_147_483_647)
     occurred_at: datetime
     status: Literal[
         "queued",
@@ -250,6 +257,12 @@ class ProviderWebhookPayload(StrictSchema):
     ]
     message: str | None = Field(default=None, max_length=500)
 
+    @field_validator("occurred_at")
+    @classmethod
+    def validate_occurred_at(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("occurred_at must include a timezone")
+        return value
 
 class ProviderWebhookResult(BaseModel):
     event_id: str

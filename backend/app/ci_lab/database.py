@@ -23,9 +23,11 @@ from sqlalchemy import (
     MetaData,
     String,
     Table,
+    Text,
     UniqueConstraint,
     event,
 )
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_engine
 
 
@@ -119,6 +121,119 @@ approvals = Table(
 Index("ix_ci_lab_run_approvals_created", approvals.c.run_id, approvals.c.created_at)
 
 
+webhook_subscriptions = Table(
+    "ci_lab_webhook_subscriptions",
+    metadata,
+    Column(
+        "run_id",
+        String(36),
+        ForeignKey("ci_lab_runs.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    # This is a routing identifier, never a callback URL.  The delivery worker
+    # combines it with one code-owned local target selected at startup.
+    Column("connection_id", String(36), nullable=False),
+    Column("correlation_id", String(200), nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+)
+Index(
+    "ix_ci_lab_webhook_subscriptions_connection",
+    webhook_subscriptions.c.connection_id,
+    webhook_subscriptions.c.created_at,
+)
+
+
+webhook_deliveries = Table(
+    "ci_lab_webhook_deliveries",
+    metadata,
+    Column("id", String(36), primary_key=True),
+    Column(
+        "run_id",
+        String(36),
+        ForeignKey("ci_lab_runs.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column("connection_id", String(36), nullable=False),
+    Column("event_id", String(200), nullable=False, unique=True),
+    Column("sequence", Integer, nullable=False),
+    Column("occurred_at", DateTime(timezone=True), nullable=False),
+    Column("normalized_status", String(30), nullable=False),
+    Column("message", String(500), nullable=True),
+    # Exact canonical UTF-8 JSON is retained so every retry signs the same
+    # bytes. URLs, signatures, secrets and plaintext lease tokens are absent.
+    Column("payload_body", Text, nullable=False),
+    Column("body_sha256", String(64), nullable=False),
+    Column("status", String(20), nullable=False),
+    Column("attempts", Integer, nullable=False),
+    Column("max_attempts", Integer, nullable=False),
+    Column("available_at", DateTime(timezone=True), nullable=False),
+    Column("lease_owner", String(200), nullable=True),
+    Column("lease_token_hash", String(64), nullable=True),
+    Column("lease_expires_at", DateTime(timezone=True), nullable=True),
+    Column("last_error_code", String(100), nullable=True),
+    Column("version", Integer, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+    Column("delivered_at", DateTime(timezone=True), nullable=True),
+    Column("dead_lettered_at", DateTime(timezone=True), nullable=True),
+    UniqueConstraint(
+        "run_id",
+        "sequence",
+        name="uq_ci_lab_webhook_deliveries_run_sequence",
+    ),
+    CheckConstraint(
+        "status IN ('pending', 'claimed', 'retry_wait', 'delivered', 'dead_letter')",
+        name="ck_ci_lab_webhook_deliveries_status",
+    ),
+    CheckConstraint(
+        "sequence BETWEEN 1 AND 2147483647",
+        name="ck_ci_lab_webhook_deliveries_sequence",
+    ),
+    CheckConstraint(
+        "attempts >= 0 AND attempts <= max_attempts",
+        name="ck_ci_lab_webhook_deliveries_attempts",
+    ),
+    CheckConstraint(
+        "max_attempts BETWEEN 1 AND 20",
+        name="ck_ci_lab_webhook_deliveries_max_attempts",
+    ),
+    CheckConstraint("version >= 0", name="ck_ci_lab_webhook_deliveries_version"),
+    CheckConstraint(
+        "(status = 'claimed' AND lease_owner IS NOT NULL "
+        "AND lease_token_hash IS NOT NULL AND lease_expires_at IS NOT NULL) OR "
+        "(status != 'claimed' AND lease_owner IS NULL "
+        "AND lease_token_hash IS NULL AND lease_expires_at IS NULL)",
+        name="ck_ci_lab_webhook_deliveries_lease_shape",
+    ),
+    CheckConstraint(
+        "(status = 'delivered' AND delivered_at IS NOT NULL) OR "
+        "(status != 'delivered' AND delivered_at IS NULL)",
+        name="ck_ci_lab_webhook_deliveries_delivered_shape",
+    ),
+    CheckConstraint(
+        "(status = 'dead_letter' AND dead_lettered_at IS NOT NULL) OR "
+        "(status != 'dead_letter' AND dead_lettered_at IS NULL)",
+        name="ck_ci_lab_webhook_deliveries_dead_letter_shape",
+    ),
+)
+Index(
+    "ix_ci_lab_webhook_deliveries_claim",
+    webhook_deliveries.c.status,
+    webhook_deliveries.c.available_at,
+    webhook_deliveries.c.created_at,
+    webhook_deliveries.c.id,
+)
+Index(
+    "ix_ci_lab_webhook_deliveries_run",
+    webhook_deliveries.c.run_id,
+    webhook_deliveries.c.sequence,
+)
+Index(
+    "ix_ci_lab_webhook_deliveries_lease",
+    webhook_deliveries.c.lease_expires_at,
+)
+
+
 def require_local_filesystem_path(value: str | Path) -> Path:
     """Reject database URLs and Windows/POSIX UNC network-share forms."""
 
@@ -137,7 +252,7 @@ def require_local_filesystem_path(value: str | Path) -> Path:
 
 
 class CiLabDatabase:
-    """Single-process SQLite database owned exclusively by CI Lab."""
+    """Local SQLite database shared by one CI API and one delivery worker."""
 
     def __init__(self, path: str | Path) -> None:
         selected = require_local_filesystem_path(path).expanduser()
@@ -163,7 +278,6 @@ class CiLabDatabase:
             cursor = dbapi_connection.cursor()
             cursor.execute("PRAGMA foreign_keys=ON")
             cursor.execute("PRAGMA busy_timeout=5000")
-            cursor.execute("PRAGMA journal_mode=WAL")
             cursor.close()
 
     async def initialize(self) -> None:
@@ -174,9 +288,48 @@ class CiLabDatabase:
         async with self._initialize_lock:
             if self._initialized:
                 return
-            async with self.engine.begin() as connection:
-                await connection.run_sync(metadata.create_all)
+            # The API and delivery worker are separate processes, so the
+            # in-process lock above cannot by itself fence concurrent first
+            # startup. Acquire SQLite's writer lock before create_all performs
+            # its existence checks; the second process then observes the
+            # committed schema instead of racing into duplicate CREATE TABLE.
+            async with self.engine.connect() as connection:
+                await connection.exec_driver_sql("BEGIN IMMEDIATE")
+                try:
+                    await connection.run_sync(metadata.create_all)
+                    await connection.commit()
+                except BaseException:
+                    await connection.rollback()
+                    raise
+            await self._enable_wal_mode()
             self._initialized = True
+
+    async def _enable_wal_mode(self) -> None:
+        """Enable the persistent journal mode without a connect-hook race."""
+
+        for attempt in range(5):
+            try:
+                async with self.engine.connect() as connection:
+                    selected = (
+                        await connection.exec_driver_sql("PRAGMA journal_mode=WAL")
+                    ).scalar_one()
+                if str(selected).casefold() == "wal":
+                    return
+                if attempt == 4:
+                    raise RuntimeError("CI Lab SQLite WAL mode could not be enabled")
+            except OperationalError as error:
+                # A concurrently starting API/worker may briefly hold the
+                # schema writer lock. Retry only SQLite's lock condition; all
+                # other database errors remain fail-closed and visible.
+                message = str(error).casefold()
+                is_lock_error = (
+                    "database is locked" in message
+                    or "database table is locked" in message
+                    or "database schema is locked" in message
+                )
+                if not is_lock_error or attempt == 4:
+                    raise
+            await asyncio.sleep(0.05 * (attempt + 1))
 
     @asynccontextmanager
     async def read(self) -> AsyncIterator[AsyncConnection]:
@@ -189,8 +342,8 @@ class CiLabDatabase:
         """Serialize writes with SQLite BEGIN IMMEDIATE.
 
         This makes the idempotency lookup plus insert one local transaction.
-        CI Lab remains explicitly single-process until its later PostgreSQL
-        lesson; the API never claims multi-instance safety here.
+        SQLite serializes writers across the API and the single delivery
+        worker. This is intentionally not a multi-instance/HA claim.
         """
 
         await self.initialize()
@@ -217,4 +370,6 @@ __all__ = [
     "quality_gates",
     "require_local_filesystem_path",
     "runs",
+    "webhook_deliveries",
+    "webhook_subscriptions",
 ]

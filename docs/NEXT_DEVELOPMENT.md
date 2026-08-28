@@ -38,10 +38,15 @@ GitLab、蓝盾、数据库、IdP、Vault、S3 或其他线上系统。
 - Provider Run Artifact：复用 Storage Port，显式
   `pending → ready/failed → deleted`，保存大小与 SHA-256，上传/删除失败有补偿，
   JSON/JUnit XML 输入有界校验并记录审计。
-- 独立签名 Webhook 接收：独立于浏览器 Session/CSRF，使用专用 Secret、16 KiB
-  原始请求上限、固定五分钟时间窗、常量时间 HMAC、事件唯一键、重放/内容冲突、
-  乱序/序列缺口/终态回退处理和轮询对账标记。CI Lab 还没有主动 delivery Worker；
-  当前只验证了独立接收链路。
+- 独立签名 Webhook 收发：独立于浏览器 Session/CSRF，使用专用 Secret、
+  16 KiB 原始请求上限、固定五分钟时间窗、常量时间 HMAC、事件唯一键、重放/内容冲突、
+  乱序/序列缺口/终态回退处理。签名 body 绑定 Connection/correlation，不匹配的
+  本地 Run 不消费收据。
+- CI Lab 持久主动 Webhook Outbox/Worker：可见状态与不可变 body 同事务，
+  每 Run sequence 顺序、租约 token 摘要/version 结算、有界退避/死信、安全列表/手工
+  retry。Worker 主动物化非终态 Run，只能投递到固定环回或 Compose
+  `172.30.60.3:23100`；无任意 URL 配置。轮询用 `webhook_sequence` watermark
+  对账。
 - QA→CI 触发改为持久 trigger intent；Web 事务只写 Run/Intent，独立 Provider
   Dispatcher 以租约 claim，在事务外执行 HTTP，再以幂等键和 CAS 结算未知结果。
 - 阶段六 C 一次性 Alembic migration Job；Compose 中 Web/Worker/Scheduler/
@@ -58,7 +63,7 @@ GitLab、蓝盾、数据库、IdP、Vault、S3 或其他线上系统。
 
 - 当前机器没有 Docker。在个人隔离 Docker 环境从空卷验证 migration →
   Web/Worker/Scheduler/Dispatcher 的启动顺序、真实 PostgreSQL/RabbitMQ、CI Lab
-  固定 IP、容器间 HTTP、health、停止/重启、Secret 轮换和命名卷恢复。
+  固定 IP 双向 HTTP、Webhook Worker、health、停止/重启、Secret 轮换和命名卷恢复。
 - 对多 Worker/多 Scheduler/多 Dispatcher 做并发 claim；注入 Worker/Dispatcher
   崩溃、租约过期、重复 wake-up、RabbitMQ 中断、数据库中断和恢复，核对没有重复
   授权、任务仍能由数据库轮询兜底、未知 Provider 触发可对账。
@@ -69,7 +74,8 @@ GitLab、蓝盾、数据库、IdP、Vault、S3 或其他线上系统。
 
 - 分别设计并实测 PostgreSQL、对象存储、CI Lab SQLite 和 Secret 材料的备份、
   成对恢复、RPO/RTO 与回滚；补 SQLite→PostgreSQL 数据搬迁方案。
-- 在真实并发与恢复验收前，Web 保持单实例，CI Lab 保持单实例；不宣称 HA。
+- 在真实并发与恢复验收前，Web 保持单实例，CI Lab 保持单 API + 单
+  Webhook Worker；不宣称 HA。
 - 若未来要多 Web，再审计剩余进程锁、跨 Repository 事务、会话、文件存储、缓存和
   入口摘流，设计数据库/对象存储/消息代理/Secret Manager 的高可用拓扑。
 
@@ -78,8 +84,10 @@ GitLab、蓝盾、数据库、IdP、Vault、S3 或其他线上系统。
 - Jenkins/GitLab/BK-CI 和所有公司系统继续关闭，也不要探测。
 - 只在我们自己安装、拥有和隔离的测试实例上，一次联调一个 Provider；按所安装
   版本的官方契约补 Webhook 发送、Artifact 拉取、权限、Secret 轮换与故障测试。
-- 若继续完善 Learning CI，先增加持久主动 webhook delivery Worker、发送 outbox、
-  重试/死信和接收端对账；当前实现只有安全接收链路。
+- 若继续完善 Learning CI，下一步是在具备 Docker 的个人隔离机器实测固定
+  `172.30.60.4 → 172.30.60.3:23100` 投递、API/Worker 独立崩溃、租约过期、
+  重试/死信/手工恢复、旧 sequence 阻塞与 watermark 对账；不要把单测写成
+  容器故障验收。
 
 ## 下次开发的最小检查
 

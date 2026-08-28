@@ -70,8 +70,8 @@ Compose 则只允许一次性 migration Job 修改 schema，其他进程只校�
 # Provider、安全出站、任务、设备、Cron
 .\backend\.venv\Scripts\python.exe -m pytest backend\tests\test_pipeline_providers.py backend\tests\test_provider_security.py backend\tests\test_automation_tasks.py backend\tests\test_automation_devices.py backend\tests\test_automation_scheduler.py -q
 
-# 独立 Learning CI、Provider 契约、固定运行边界与端到端 ASGI 调用
-.\backend\.venv\Scripts\python.exe -m pytest backend\tests\test_ci_lab_api.py backend\tests\test_ci_lab_quality_gate.py backend\tests\test_ci_lab_offline_boundary.py backend\tests\test_learning_ci_provider.py backend\tests\test_learning_ci_runtime.py backend\tests\test_runtime_phase6b.py backend\tests\test_runtime_webhook_security.py backend\tests\test_runtime_artifacts.py backend\tests\test_runtime_artifact_api.py -q
+# 独立 Learning CI、主动 Webhook Outbox/Worker、Provider 契约与端到端 ASGI 调用
+.\backend\.venv\Scripts\python.exe -m pytest backend\tests\test_ci_lab_api.py backend\tests\test_ci_lab_quality_gate.py backend\tests\test_ci_lab_offline_boundary.py backend\tests\test_ci_lab_webhook_outbox.py backend\tests\test_ci_lab_webhook_worker.py backend\tests\test_learning_ci_provider.py backend\tests\test_learning_ci_runtime.py backend\tests\test_runtime_phase6b.py backend\tests\test_runtime_webhook_security.py backend\tests\test_runtime_artifacts.py backend\tests\test_runtime_artifact_api.py -q
 
 # Migration Job、Scheduler claim/CAS、task wake-up outbox 与独立进程边界
 .\backend\.venv\Scripts\python.exe -m pytest backend\tests\test_migration_job.py backend\tests\test_runtime_scheduler_claims.py backend\tests\test_scheduler_runner.py backend\tests\test_scheduler_main.py backend\tests\test_runtime_task_outbox.py backend\tests\test_outbox_main.py backend\tests\test_runtime_persistence.py -q
@@ -121,9 +121,12 @@ backend，再在另一个终端启动前端：
 .\scripts\start-frontend.ps1
 ```
 
-源码脚本使用 owner-only 随机临时 Token、固定环回地址和独立
+源码脚本使用两个 owner-only 随机临时 Secret 文件、固定环回地址和独立
 `.data/ci-lab-source` 数据库；它强制关闭 Broker/S3/OIDC/Vault，不会继承 `.env`
-里的其他实验连接。Ctrl+C 时只清理它自己启动的 Lab 进程与临时 Token 文件。
+里的其他实验连接。脚本同时启动 CI Lab API 与独立 Webhook Worker：API
+只继承机器 Token 文件，Worker 只继承 HMAC Secret 文件和固定
+`host_loopback` 模式，两者共享 Lab SQLite。Ctrl+C 时只清理它自己启动的
+Lab/Worker 进程与临时 Secret 文件。
 要练习 Compose 隔离网络，则保持 `.env` 中
 `COMPOSE_PROVIDER_RUNTIME_MODE=local_lab` 的安全默认值，再使用专用脚本为本次
 Compose 调用生成临时机器 Token、显式选择 `ci_lab_local` 并重建两个消费端：
@@ -136,6 +139,12 @@ CI Lab 观察地址是 `http://127.0.0.1:23020/health/live`，QA 入口仍是
 `http://127.0.0.1:23010/`。脚本不输出 Token；不要运行会展开环境或容器 metadata
 的诊断命令。完整边界和故障练习见
 [DEPLOYMENT_PHASE6_CI_LAB.md](../infra/DEPLOYMENT_PHASE6_CI_LAB.md)。
+
+Webhook Worker 不接受 URL 参数：源码模式只能到
+`127.0.0.1:23100`，Compose 模式只能从固定 `172.30.60.4` 到固定
+`172.30.60.3:23100`。它持久快照 Outbox，按 Run sequence 使用租约领取、
+事务外 HMAC 投递和退避/死信结算；只有机器 Bearer 接口可列出安全元数据
+或手工 retry 死信。
 
 默认 Compose 使用单 Web 与 SQLite。可选自建 PostgreSQL 练习必须在被 Git 忽略的 `.env` 中把 `COMPOSE_DATABASE_RUNTIME_MODE` 改为 `postgres_local_container`，把 URL 改为 `.env.example` 中的 `postgresql+asyncpg://...@postgres:5432/...` 内部地址，并提供本机教学密码，然后显式启动 profile：
 
@@ -161,9 +170,11 @@ Job。RabbitMQ 只接收无业务内容 wake-up hint。启用前要在被忽略�
 
 当前机器没有 Docker，上述 profile 尚未实机运行验证。现有测试只证明配置边界、
 共享 SQLAlchemy 持久化逻辑、Alembic/ORM 的 PostgreSQL 方言、claim/CAS 算法、
-进程入口和 readiness 分支；具备 Docker 后仍要从空卷补做 migration Job、CRUD、
+进程入口、Webhook Outbox/Worker 契约和 readiness 分支；具备 Docker 后仍要从空卷补做 migration Job、CRUD、
 真实 PostgreSQL/RabbitMQ、多实例竞争、重复消息、进程强杀、租约过期、Broker/
-数据库中断与恢复。Web 当前仍固定单实例，不宣称 HA。
+数据库中断与恢复，以及固定容器 IP 双向 HTTP、死信手工恢复和 Worker
+崩溃窗。Web 当前仍固定单实例，CI Lab 只支持单 API + 单 Webhook Worker，
+不宣称 HA。
 
 ## 修改数据库
 

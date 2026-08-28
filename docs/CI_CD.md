@@ -48,8 +48,18 @@ Executor。
 
 Run Artifact 复用 Storage Port，显式记录 `pending/ready/failed/deleted`、大小、
 SHA-256、补偿和审计。独立机器 Webhook 接收端使用专用 HMAC Secret、五分钟时间窗、
-事件唯一键与 sequence reducer，处理重放、乱序、缺口和终态回退；CI Lab 目前没有
-主动 delivery Worker，所以当前只验证接收与轮询对账。
+事件唯一键与 sequence reducer，处理重放、乱序、缺口和终态回退。触发还将
+Connection UUID 与 correlation/Idempotency-Key 成对绑定，签名回调再携带同一
+绑定；这能处理回调早于 Provider HTTP 结算的竞态，且未找到 Run 时不会
+错误消费事件收据。
+
+CI Lab 已实现主动 delivery：Run/门禁变化与不可变 body 同事务写入自有
+SQLite Outbox，独立 Worker 主动物化时间线，再按 Run sequence 通过租约领取、
+事务外 HMAC HTTP、CAS 结算、有界退避与死信处理。机器 API 可查询不含
+payload/Secret/租约 token 的投递元数据并手工 retry 死信。发送目标不能由页面、
+数据库或 URL 环境变量配置：宿主机只到 `127.0.0.1:23100`，Compose 只从
+`172.30.60.4` 到 `172.30.60.3:23100`。QA 轮询仍以 CI Lab 快照为权威源，
+使用 `webhook_sequence` watermark 对账缺失回调。
 
 流水线模拟器的 checkpoint 与 QA 数据复用异步 SQLAlchemy 和 Alembic。默认落到 SQLite；可选 PostgreSQL 只允许 `postgres_local_container + APP_ENV=local-container + postgresql+asyncpg@postgres:5432` 的内部网络。一次 checkpoint 的运行、触发幂等键和回调事件在同一数据库事务提交，readiness 也支持这两种受约束的 backend。
 
@@ -70,9 +80,11 @@ BK-CI 不同版本的网关前缀、认证方式、项目/流水线标识可能�
 ## 建议学习顺序
 
 1. 在 Local Provider 中理解统一状态机，确认它完全不访问网络。
-2. 显式启动 Learning CI，用两个本机进程练习 Bearer、异步 trigger/get/cancel、幂等冲突、超时、停机和恢复。
-3. 在 Learning CI 上练习已经实现的签名 Webhook 接收/轮询对账、审批、质量门禁、
-   Trigger Intent 和 Artifact，不先绑定供应商语法。
+2. 显式启动 Learning CI 本机进程拓扑，练习 Bearer、异步
+   trigger/get/cancel、幂等冲突、超时、独立 Worker 停机和恢复。
+3. 在 Learning CI 上练习已经实现的持久签名 Webhook 主动收发、sequence/
+   租约/退避/死信、watermark 轮询对账、审批、质量门禁、Trigger Intent 和 Artifact，
+   不先绑定供应商语法。
 4. 观察 migration Job、Provider Dispatcher、Scheduler、task wake-up outbox/
    Dispatcher 的短事务边界；RabbitMQ 只作无内容唤醒，Web 不持有 Broker。
 5. 用 Mock HTTP 为 Jenkins/GitLab/BK-CI 维护契约测试，不发真实产品请求。
@@ -85,7 +97,8 @@ BK-CI 不同版本的网关前缀、认证方式、项目/流水线标识可能�
 当前 Compose 只提供本机容器演示，不执行自动部署。一次性 migration Job、
 verify-only Web/Worker/Scheduler/Dispatcher、PostgreSQL、RabbitMQ 与 `ci-lab` profile
 已接线；Web 不持有 Broker。当前机器没有 Docker，因此尚未做真实容器迁移、固定
-IP socket、多进程竞争、流水线恢复和 readiness 验证；现有检查属于安全边界、
+IP 双向 socket、Webhook Worker 崩溃/租约/死信恢复、多进程竞争、流水线恢复和 readiness
+验证；现有检查属于安全边界、
 方言、ASGI 契约和静态/自动化验证。
 
 正式 CD 仍需要环境分层、Secret Manager 启动注入、镜像签名与扫描、部署审批、

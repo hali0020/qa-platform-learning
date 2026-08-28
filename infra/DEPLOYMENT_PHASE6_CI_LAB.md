@@ -12,16 +12,20 @@ Learning CI 客户端才可以访问一个代码中固定的目标：
 
 ```text
 浏览器 ── 127.0.0.1:23010 ── QA frontend/backend
-                                      │
-                                      │ 仅 172.30.60.2/32:8080
-                                      ▼
+                       172.30.60.3 │ │ 仅 172.30.60.2/32:8080
+                                      │ ▼
                          Learning CI + /data/ci-lab.db
-                                      │
+                                      │ ▲
+                                      │ │ 固定签名回调
+                                      ▼ │
+                     Webhook Worker 172.30.60.4
+
                          127.0.0.1:23020（教学直看）
 ```
 
 CI Lab 只加入 `172.30.60.0/28` 独立内部网络，固定地址为
-`172.30.60.2`；backend 只额外加入这一条专网。CI Lab 不加入 default、对象存储、
+`172.30.60.2`；backend 在该专网固定为 `172.30.60.3`，独立 Webhook
+Worker 固定为 `172.30.60.4`。CI Lab/Worker 不加入 default、对象存储、
 身份或 Secret 网络。宿主机端口只绑定环回地址，不能被局域网访问。
 frontend Nginx 不提供 `/ci-lab`、`/__ci_lab` 或其他 Lab 代理路径；`23010` 只暴露
 QA 平台，教学直看必须显式访问独立的 `127.0.0.1:23020`。
@@ -51,7 +55,10 @@ Bearer Token 与入站 Webhook HMAC key。它们只在脚本的进程
 环境中短暂存在：CI Lab 得到只读
 `/run/secrets/ci_lab_machine_token`，backend 因当前 Secret Store 启动边界限制，
 通过严格白名单的 `QA_PROVIDER_SECRET_CI_LAB` 环境变量得到同一个值；Webhook key
-使用 `QA_PROVIDER_SECRET_CI_LAB_WEBHOOK`，不得与 Bearer Token 复用。
+使用 `QA_PROVIDER_SECRET_CI_LAB_WEBHOOK`，不得与 Bearer Token 复用。它作为只读
+`/run/secrets/ci_lab_webhook_secret` 只挂载给独立 Webhook Worker；CI Lab API
+不挂载它，Worker 也不挂载机器 Token。QA backend 仅为验签从严格 allowlist
+环境适配器读取 Webhook key。
 
 因此 backend 的容器 metadata 仍可能包含这个教学 Token。不要运行会展开环境值的
 `docker compose config`，也不要提交 `.env`、粘贴 `docker inspect`、截图或复用该
@@ -74,9 +81,9 @@ Token。后续可把 backend 一侧也改成运行时 Secret 文件/Vault 引导
 2. 在内存中生成不输出、相互独立的随机机器 Token 与 Webhook Secret；
 3. 仅对本次 Compose 调用设置 `ci_lab_local` 和精确 Secret 名；
 4. 使用 `config --quiet` 做静态配置检查；
-5. 构建并重建 `ci-lab`、`backend` 和 `frontend`，使本轮机器 Token 在两个消费端
-   保持一致，并把独立 Webhook Secret 只交给 QA 接收端；命名卷数据不会因重建容器
-   而删除；
+5. 构建并重建 `ci-lab`、`backend`、`ci-lab-webhook-worker` 和
+   `frontend`；机器 Token 只交给 Lab API/QA Provider，Webhook Secret 只交给
+   独立 Worker/QA 验签端；命名卷数据不会因重建容器而删除；
 6. 恢复调用者原来的进程环境变量。
 
 首次构建会从公开 Python/Docker 软件源下载项目声明的依赖和基础镜像。运行后的
@@ -115,9 +122,12 @@ URL、host、端口或 CIDR 都应被后端拒绝。
 
 触发运行时填写普通分支/变量，并使用唯一 `correlation_id`。前端会生成安全的随机
 值；HTTP 客户端把它转换为 CI Lab 的 `Idempotency-Key`。相同键与相同请求应返回
-同一运行，不同请求复用同一键应被拒绝。
+同一运行，不同请求复用同一键应被拒绝。连接已配专用 Webhook Secret 时，
+Provider 还会将该 Connection UUID 和同一 correlation 成对传给 Lab。它们是签名
+回调的路由/竞态绑定，不是 callback URL；任一个缺失或 correlation 与幂等键不同
+都应失败。
 
-Lab 与平台之间只有定义读取和三种运行操作需要机器鉴权：
+Lab 只为以下固定控制与投递管理操作提供机器鉴权接口：
 
 ```text
 GET  /api/v1/definitions
@@ -125,6 +135,8 @@ POST /api/v1/definitions/{definition}/runs
 GET  /api/v1/runs/{run_id}
 POST /api/v1/runs/{run_id}/cancel
 POST /api/v1/runs/{run_id}/gate-decisions
+GET  /api/v1/webhook-deliveries?status=...&run_id=...&limit=...
+POST /api/v1/webhook-deliveries/{delivery_id}/retry
 ```
 
 没有“任意 URL 请求”“执行 Shell”“动态 import”“公司项目发现”或凭据回显接口。
@@ -134,14 +146,30 @@ Lab 也不启动后台 Executor：运行依据持久化的 `created_at` 与源�
 `local-failure-demo` 确定失败。状态与审批持久化，因此重启后可以恢复，同一运行不会
 因时钟回拨退回旧状态，也没有绕过门禁的隐藏教学控制端点。
 
+Run/门禁状态变化与不可变 Webhook body 在同一 Lab SQLite 事务中写入
+Outbox，每 Run sequence 从 1 递增。独立 Worker 每轮先主动物化已订阅的
+非终态 Run，再按 sequence 顺序以租约 claim；HTTP 位于事务外，结算使用
+owner/token 摘要/version/到期校验。暂时故障进入有界指数退避，不可重试
+故障或耗尽尝试进入死信。列表 API 不返回 body、签名、目标、Secret、摘要或
+租约 token；manual retry 只能重置死信。
+
+Worker 没有 URL 配置，只能从固定 `172.30.60.4` 访问
+`http://172.30.60.3:23100/api/v1/webhooks/learning-ci/{connection_id}`，并关闭
+环境代理与重定向。QA 验签后再核对路径 Connection、已启用 Learning CI 连接、
+固定 Secret 引用和 Run correlation。若回调早于 Provider HTTP 结算，correlation
+可将已有本地 Run 绑到 external ID；找不到 Run 则不消费收据，以便原 event
+ID/body 重试。轮询返回的 `webhook_sequence` watermark 仍是丢失/缺口回调的
+权威对账通道。
+
 ## 4. 建议练习
 
 按顺序验证：
 
 1. 不带 `--profile ci-lab` 启动，确认 CI Lab 不存在且 runtime mode 为
    `local_lab`。
-2. 使用脚本启动，确认只有 `127.0.0.1:23020` 暴露 Lab，容器目标固定为
-   `172.30.60.2:8080`。
+2. 使用脚本启动，确认只有 `127.0.0.1:23020` 暴露 Lab，QA→CI
+   固定为 `172.30.60.3 → 172.30.60.2:8080`，CI→QA 固定为
+   `172.30.60.4 → 172.30.60.3:23100`。
 3. 创建 `learning_ci` 连接，触发一次带唯一 correlation ID 的运行；先观察 QA 只写
    Run/Intent。这个脚本的 SQLite 教学拓扑使用页面/API 手工 dispatch；只有另行启用
    PostgreSQL `provider-dispatcher` profile 时才由独立进程自动 claim 并执行 HTTP。
@@ -149,11 +177,17 @@ Lab 也不启动后台 Executor：运行依据持久化的 `created_at` 与源�
 5. 查询运行，再取消一个尚未结束的运行，确认终态不会被反向覆盖。
 6. 分别触发 `local-quality-gate` 和 `local-failure-demo`；前者应停在
    `waiting_approval`，验证触发人不能自批、第二人可幂等批准/拒绝，Webhook 不能绕过。
-7. 上传 JSON/JUnit XML 测试报告或 Artifact，观察 pending、摘要、补偿和审计；用
-   测试客户端练习独立签名 Webhook 的 duplicate/stale/gap/终态回退。
-8. 重启 CI Lab，确认独立 `ci-lab-data` 卷中的运行历史仍能读取。
-9. 停止 CI Lab 后触发或查询，观察有界超时和脱敏错误；恢复服务后重试。
-10. 把 runtime mode 改回 `local_lab`，确认即使容器仍在运行，backend 也拒绝网络
+7. 上传 JSON/JUnit XML 测试报告或 Artifact，观察 pending、摘要、补偿和审计。
+8. 观察主动 Webhook 产生的 Run sequence 和 `delivered`；停止 backend 观察
+   `retry_wait`，验证低 sequence 阻塞高 sequence，再恢复并确认顺序投递。
+9. 用测试客户端补充练习 duplicate/stale/gap/终态回退，然后执行 poll，
+   确认 `webhook_sequence` watermark 清除对账标记且旧回调不会回退快照。
+10. 让一条投递进入死信，查询安全元数据并用机器 Bearer 手工 retry；确认
+    API 不回显 body、签名、目标或租约 token。
+11. 分别重启 CI Lab API 和 Webhook Worker，确认独立 `ci-lab-data` 卷中的
+    Run/Outbox 仍可恢复，过期租约可重新 claim。
+12. 停止 CI Lab 后触发或查询，观察有界超时和脱敏错误；恢复服务后重试。
+13. 把 runtime mode 改回 `local_lab`，确认即使容器仍在运行，backend 也拒绝网络
    Provider 操作。
 
 数据库持久化、HTTP 幂等和运行状态是三个不同层次：数据库保存运行不代表消息
@@ -165,7 +199,7 @@ Lab 也不启动后台 Executor：运行依据持久化的 `created_at` 与源�
 停止进程但保留独立数据卷：
 
 ```powershell
-docker compose --env-file .env -f infra/compose.phase2.yaml --profile ci-lab stop ci-lab backend frontend
+docker compose --env-file .env -f infra/compose.phase2.yaml --profile ci-lab stop ci-lab ci-lab-webhook-worker backend frontend
 ```
 
 普通 `stop` 或 `down` 不会删除 `ci-lab-data`。本说明不提供常规
@@ -176,13 +210,13 @@ Lab 时，应先核对完整 Compose project 和卷名、导出仍需保留的�
 ## 6. 还没有完成什么
 
 - 没有真实 Jenkins、GitLab、蓝盾或公司环境联调；
-- CI Lab 没有主动 webhook delivery Worker；当前只验证 QA 端独立签名接收；
 - 没有真正的源码拉取、构建 Executor 或部署；QA 平台已有 Run Artifact，但不是
   完整制品仓库/构建产物发布系统；
 - 没有 TLS、镜像签名、SBOM、漏洞扫描或不可篡改审计；
-- 没有多实例 CI Lab、数据库复制、备份恢复验收或跨宿主机高可用；
-- 没有在当前机器执行 Docker 构建、真实 PostgreSQL/RabbitMQ、网络隔离、多实例、
-  重启和故障注入验证；Web 保持单实例，不宣称 HA。
+- 没有多实例 CI Lab/Delivery Worker、数据库复制、备份恢复验收或跨宿主机高可用；
+- 没有在当前机器执行 Docker 构建、真实 PostgreSQL/RabbitMQ、固定 IP 双向
+  HTTP、网络隔离、多实例、重启、Worker 崩溃/租约/死信恢复和故障注入验证；
+  Web 保持单实例，CI Lab 保持单 API + 单 Webhook Worker，不宣称 HA。
 
 这些限制不妨碍学习可迁移的核心：固定出站边界、异步 HTTP、Bearer 机器身份、
 幂等触发、状态归一化、取消、持久化和故障恢复。

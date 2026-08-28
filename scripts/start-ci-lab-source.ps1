@@ -9,6 +9,8 @@ $CiDatabasePath = Join-Path $DataRoot "ci-lab.db"
 $UploadRoot = Join-Path $DataRoot "uploads"
 $LabStdoutPath = Join-Path $DataRoot "ci-lab.stdout.log"
 $LabStderrPath = Join-Path $DataRoot "ci-lab.stderr.log"
+$WorkerStdoutPath = Join-Path $DataRoot "ci-lab-webhook-worker.stdout.log"
+$WorkerStderrPath = Join-Path $DataRoot "ci-lab-webhook-worker.stderr.log"
 $QaDatabaseUrl = "sqlite+aiosqlite:///$($QaDatabasePath.Replace('\', '/'))"
 
 $LocalApplicationData = [Environment]::GetFolderPath(
@@ -44,6 +46,7 @@ if (
     throw "CI Lab Secret 目录必须是 LocalApplicationData 的随机直接子目录。"
 }
 $TokenPath = Join-Path $SecretRoot "machine.token"
+$WebhookSecretPath = Join-Path $SecretRoot "webhook.secret"
 
 if (-not (Test-Path -LiteralPath $PythonPath -PathType Leaf)) {
     throw "未找到 Python 3.10 后端虚拟环境，请先初始化 backend\.venv。"
@@ -149,6 +152,75 @@ function Protect-SecretDirectory {
     }
 }
 
+function Protect-SecretFile {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    $Identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    try {
+        $CurrentSid = $Identity.User
+        if ($null -eq $CurrentSid) {
+            throw "无法解析当前 Windows 用户 SID。"
+        }
+        $Acl = [Security.AccessControl.FileSecurity]::new()
+        $Acl.SetOwner($CurrentSid)
+        $Acl.SetAccessRuleProtection($true, $false)
+        $Rule = [Security.AccessControl.FileSystemAccessRule]::new(
+            $CurrentSid,
+            [Security.AccessControl.FileSystemRights]::FullControl,
+            [Security.AccessControl.AccessControlType]::Allow
+        )
+        $Acl.AddAccessRule($Rule)
+        Set-Acl -LiteralPath $Path -AclObject $Acl
+
+        $Verified = Get-Acl -LiteralPath $Path
+        if (-not $Verified.AreAccessRulesProtected) {
+            throw "CI Lab Secret 文件仍在继承 ACL。"
+        }
+        foreach ($Access in $Verified.Access) {
+            $Sid = $Access.IdentityReference.Translate(
+                [Security.Principal.SecurityIdentifier]
+            )
+            if (
+                $Access.AccessControlType -eq
+                    [Security.AccessControl.AccessControlType]::Allow -and
+                $Sid.Value -ne $CurrentSid.Value
+            ) {
+                throw "CI Lab Secret 文件存在非当前用户的允许规则。"
+            }
+        }
+    }
+    finally {
+        $Identity.Dispose()
+    }
+}
+
+function Write-OwnerOnlySecretFile {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$Value
+    )
+
+    $Stream = [IO.File]::Open(
+        $Path,
+        [IO.FileMode]::CreateNew,
+        [IO.FileAccess]::Write,
+        [IO.FileShare]::None
+    )
+    try {
+        $Bytes = [Text.Encoding]::ASCII.GetBytes($Value)
+        try {
+            $Stream.Write($Bytes, 0, $Bytes.Length)
+        }
+        finally {
+            [Array]::Clear($Bytes, 0, $Bytes.Length)
+        }
+    }
+    finally {
+        $Stream.Dispose()
+    }
+    Protect-SecretFile -Path $Path
+}
+
 $ManagedVariables = @(
     "APP_ENV",
     "DEBUG",
@@ -192,7 +264,11 @@ $ManagedVariables = @(
     "QA_PROVIDER_SECRET_CI_LAB",
     "QA_PROVIDER_SECRET_CI_LAB_WEBHOOK",
     "CI_LAB_DATABASE_PATH",
-    "CI_LAB_MACHINE_TOKEN_FILE"
+    "CI_LAB_MACHINE_TOKEN_FILE",
+    "CI_LAB_WEBHOOK_SECRET_FILE",
+    "CI_LAB_WEBHOOK_TARGET_MODE",
+    "CI_LAB_WEBHOOK_TARGET_URL",
+    "CI_LAB_WEBHOOK_WORKER_ID"
 )
 $PreviousValues = @{}
 foreach ($Name in $ManagedVariables) {
@@ -205,6 +281,7 @@ foreach ($Name in $ManagedVariables) {
 $MachineToken = $null
 $WebhookSecret = $null
 $LabProcess = $null
+$WebhookWorkerProcess = $null
 try {
     New-Item -ItemType Directory -Path $DataRoot -Force | Out-Null
     Assert-LoopbackPortAvailable -Port 23020
@@ -238,24 +315,8 @@ try {
         )
     }
 
-    $TokenStream = [IO.File]::Open(
-        $TokenPath,
-        [IO.FileMode]::CreateNew,
-        [IO.FileAccess]::Write,
-        [IO.FileShare]::None
-    )
-    try {
-        $TokenBytes = [Text.Encoding]::ASCII.GetBytes($MachineToken)
-        try {
-            $TokenStream.Write($TokenBytes, 0, $TokenBytes.Length)
-        }
-        finally {
-            [Array]::Clear($TokenBytes, 0, $TokenBytes.Length)
-        }
-    }
-    finally {
-        $TokenStream.Dispose()
-    }
+    Write-OwnerOnlySecretFile -Path $TokenPath -Value $MachineToken
+    Write-OwnerOnlySecretFile -Path $WebhookSecretPath -Value $WebhookSecret
 
     $Values = @{
         APP_ENV = "local"
@@ -303,6 +364,10 @@ try {
         QA_PROVIDER_SECRET_CI_LAB_WEBHOOK = $WebhookSecret
         CI_LAB_DATABASE_PATH = $CiDatabasePath
         CI_LAB_MACHINE_TOKEN_FILE = $TokenPath
+        CI_LAB_WEBHOOK_SECRET_FILE = $WebhookSecretPath
+        CI_LAB_WEBHOOK_TARGET_MODE = "host_loopback"
+        CI_LAB_WEBHOOK_TARGET_URL = ""
+        CI_LAB_WEBHOOK_WORKER_ID = "ci-lab-source-webhook-worker"
     }
     foreach ($Entry in $Values.GetEnumerator()) {
         [Environment]::SetEnvironmentVariable(
@@ -312,17 +377,48 @@ try {
         )
     }
 
-    $LabProcess = Start-Process `
-        -FilePath $PythonPath `
-        -ArgumentList @(
-            "-m", "uvicorn", "app.ci_lab.main:app",
-            "--host", "127.0.0.1", "--port", "23020", "--no-access-log"
-        ) `
-        -WorkingDirectory $BackendRoot `
-        -WindowStyle Hidden `
-        -RedirectStandardOutput $LabStdoutPath `
-        -RedirectStandardError $LabStderrPath `
-        -PassThru
+    # The API process needs only its machine-token file. Remove every raw
+    # credential and the unrelated webhook file from its inherited block.
+    $LabExcludedValues = @{}
+    foreach ($Name in @(
+        "QA_PROVIDER_SECRET_CI_LAB",
+        "QA_PROVIDER_SECRET_CI_LAB_WEBHOOK",
+        "CI_LAB_WEBHOOK_SECRET_FILE"
+    )) {
+        $LabExcludedValues[$Name] = [Environment]::GetEnvironmentVariable(
+            $Name,
+            [EnvironmentVariableTarget]::Process
+        )
+        [Environment]::SetEnvironmentVariable(
+            $Name,
+            $null,
+            [EnvironmentVariableTarget]::Process
+        )
+    }
+    try {
+        $LabProcess = Start-Process `
+            -FilePath $PythonPath `
+            -ArgumentList @(
+                "-m", "uvicorn", "app.ci_lab.main:app",
+                "--host", "127.0.0.1", "--port", "23020", "--no-access-log"
+            ) `
+            -WorkingDirectory $BackendRoot `
+            -WindowStyle Hidden `
+            -RedirectStandardOutput $LabStdoutPath `
+            -RedirectStandardError $LabStderrPath `
+            -PassThru
+    }
+    finally {
+        foreach ($Name in $LabExcludedValues.Keys) {
+            [Environment]::SetEnvironmentVariable(
+                $Name,
+                $LabExcludedValues[$Name],
+                [EnvironmentVariableTarget]::Process
+            )
+        }
+        $LabExcludedValues.Clear()
+        $LabExcludedValues = $null
+    }
 
     $Ready = $false
     for ($Attempt = 0; $Attempt -lt 150; $Attempt++) {
@@ -351,6 +447,70 @@ try {
         throw "CI Lab 未在受控进程上就绪，请查看 .data\ci-lab-source\ci-lab.stderr.log。"
     }
 
+    # Start the sender with file-based signing access only. Temporarily clear
+    # every machine-token or plaintext webhook value so Start-Process cannot
+    # copy those credentials into the worker's environment block.
+    $WorkerExcludedValues = @{}
+    foreach ($Name in @(
+        "QA_PROVIDER_SECRET_CI_LAB",
+        "QA_PROVIDER_SECRET_CI_LAB_WEBHOOK",
+        "CI_LAB_MACHINE_TOKEN_FILE"
+    )) {
+        $WorkerExcludedValues[$Name] = [Environment]::GetEnvironmentVariable(
+            $Name,
+            [EnvironmentVariableTarget]::Process
+        )
+        [Environment]::SetEnvironmentVariable(
+            $Name,
+            $null,
+            [EnvironmentVariableTarget]::Process
+        )
+    }
+    try {
+        $WebhookWorkerProcess = Start-Process `
+            -FilePath $PythonPath `
+            -ArgumentList @("-m", "app.ci_lab.webhook_worker_main") `
+            -WorkingDirectory $BackendRoot `
+            -WindowStyle Hidden `
+            -RedirectStandardOutput $WorkerStdoutPath `
+            -RedirectStandardError $WorkerStderrPath `
+            -PassThru
+    }
+    finally {
+        foreach ($Name in $WorkerExcludedValues.Keys) {
+            [Environment]::SetEnvironmentVariable(
+                $Name,
+                $WorkerExcludedValues[$Name],
+                [EnvironmentVariableTarget]::Process
+            )
+        }
+        $WorkerExcludedValues.Clear()
+        $WorkerExcludedValues = $null
+    }
+    Start-Sleep -Milliseconds 300
+    $WebhookWorkerProcess.Refresh()
+    if ($WebhookWorkerProcess.HasExited) {
+        throw "Webhook Worker 提前退出，请查看 .data\ci-lab-source\ci-lab-webhook-worker.stderr.log。"
+    }
+
+    # Both child processes now own their minimal inherited environment blocks.
+    # The foreground QA process needs only the two allowlisted provider values,
+    # never either CI Lab secret-file path or worker routing setting.
+    foreach ($Name in @(
+        "CI_LAB_DATABASE_PATH",
+        "CI_LAB_MACHINE_TOKEN_FILE",
+        "CI_LAB_WEBHOOK_SECRET_FILE",
+        "CI_LAB_WEBHOOK_TARGET_MODE",
+        "CI_LAB_WEBHOOK_TARGET_URL",
+        "CI_LAB_WEBHOOK_WORKER_ID"
+    )) {
+        [Environment]::SetEnvironmentVariable(
+            $Name,
+            $null,
+            [EnvironmentVariableTarget]::Process
+        )
+    }
+
     Push-Location $BackendRoot
     try {
         & $PythonPath -m alembic upgrade head
@@ -358,7 +518,7 @@ try {
             throw "本机专用数据库迁移失败，QA 后端未启动。"
         }
         Write-Host "Learning CI Lab：http://127.0.0.1:23020/health/live"
-        Write-Host "QA API：http://127.0.0.1:23100（Ctrl+C 会同时停止 CI Lab）"
+        Write-Host "QA API：http://127.0.0.1:23100（Ctrl+C 会同时停止 CI Lab 与 Webhook Worker）"
         & $PythonPath -m uvicorn app.main:app `
             --host 127.0.0.1 --port 23100 --no-access-log
         if ($LASTEXITCODE -ne 0) {
@@ -371,6 +531,25 @@ try {
 }
 finally {
     try {
+        if ($null -ne $WebhookWorkerProcess) {
+            try {
+                $WebhookWorkerProcess.Refresh()
+                if (-not $WebhookWorkerProcess.HasExited) {
+                    # Kill only through the exact retained Process handle.
+                    $WebhookWorkerProcess.Kill($true)
+                }
+                $WebhookWorkerProcess.WaitForExit(5000) | Out-Null
+            }
+            catch [InvalidOperationException] {
+                # The exact retained process exited between Refresh and Kill.
+            }
+            catch [System.ComponentModel.Win32Exception] {
+                Write-Warning "Webhook Worker 子进程清理失败；请仅核对本脚本启动的隐藏进程。"
+            }
+            finally {
+                $WebhookWorkerProcess.Dispose()
+            }
+        }
         if ($null -ne $LabProcess) {
             try {
                 $LabProcess.Refresh()
@@ -393,8 +572,15 @@ finally {
     }
     finally {
         try {
-            if (Test-Path -LiteralPath $TokenPath -PathType Leaf) {
-                Remove-Item -LiteralPath $TokenPath -Force
+            try {
+                if (Test-Path -LiteralPath $WebhookSecretPath -PathType Leaf) {
+                    Remove-Item -LiteralPath $WebhookSecretPath -Force
+                }
+            }
+            finally {
+                if (Test-Path -LiteralPath $TokenPath -PathType Leaf) {
+                    Remove-Item -LiteralPath $TokenPath -Force
+                }
             }
         }
         finally {

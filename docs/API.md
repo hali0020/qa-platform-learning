@@ -136,8 +136,17 @@ CSRF。它要求原始 Header `X-QA-Webhook-Event-ID`、
 ID/不同摘要冲突。sequence 旧值、缺口、occurred-at 回退或终态回退不会覆盖新状态，
 必要时标记 `reconciliation_required` 交给轮询对账。
 
-CI Lab 当前没有主动 webhook delivery Worker；这个端点及其自动化测试只证明独立
-接收链路，不代表 Lab 已主动推送。
+主动投递的 body 还必须同时携带触发时绑定的 `connection_id` 和
+`correlation_id`。接收端核对路径中的 Connection、已启用的 Learning CI
+连接、固定 Webhook Secret 引用与本地 Run correlation。如回调早于
+Provider Dispatcher 的 HTTP 结算，可以用相同 correlation 把已有的本地 Run
+绑到 external ID；找不到匹配 Run 则返回冲突且不消费事件收据，使发送方
+仍可安全重试。
+
+CI Lab 的独立 Webhook Worker 会主动物化已订阅 Run 的时间线，持久化
+状态快照后才使用固定本地目标投递。QA 轮询成功时还会读取 CI Lab
+Run 元数据中的 `webhook_sequence` watermark：它可以越过已由权威快照对账的
+缺失回调，随后到达的旧事件会被安全判定为 stale。
 
 ### 独立 Learning CI Lab 机器 API
 
@@ -151,6 +160,18 @@ CI Lab 是 `127.0.0.1:23020`（容器内固定 `172.30.60.2:8080`）上的另一
 | GET | `/api/v1/runs/{run_id}` | 物化并读取运行/Stage/Job 状态 |
 | POST | `/api/v1/runs/{run_id}/cancel` | 幂等取消非终态运行 |
 | POST | `/api/v1/runs/{run_id}/gate-decisions` | 对等待中的固定质量门禁做幂等批准/拒绝 |
+| GET | `/api/v1/webhook-deliveries` | 按 `status`/`run_id` 查询有界的安全投递元数据 |
+| POST | `/api/v1/webhook-deliveries/{delivery_id}/retry` | 将一条死信重置为立即可投递 |
+
+触发请求可以由受信 Provider 成对携带 `webhook_connection_id` 和
+`correlation_id`；后者必须与 `Idempotency-Key` 一致。该绑定是不透明路由标识，
+不是回调 URL。每次可见状态变化与对应的不可变投递 body 在同一 CI Lab
+SQLite 事务内落库，并为每个 Run 分配从 1 开始的连续 sequence。投递状态为
+`pending/claimed/retry_wait/delivered/dead_letter`；每个 Run 的低 sequence
+未 delivered 时不会领取高 sequence。Worker 用租约 token 摘要和 version
+结算，在事务外发 HTTP，可重试故障指数退避，不可重试故障或耗尽次数
+进入死信。手工 retry 只接受死信；列表不返回 body、摘要、签名、
+目标 URL、Secret 或租约 token。
 
 该 API 不提供 OpenAPI UI、任意 URL、Shell、动态 Definition 或凭据回显。相同幂等键与相同输入返回同一 Run；同一个键配不同输入返回 `409`。详细契约见 [PHASE6_CI_LAB.md](PHASE6_CI_LAB.md)。
 

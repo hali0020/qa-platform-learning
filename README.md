@@ -13,7 +13,7 @@
 | 数据处理 | CSV/XLSX 预检与提交、逐行结果、模板导出与输入安全校验 |
 | 质量度量 | 通过率、自动化覆盖率、执行触达率、缺陷关联率及趋势统计 |
 | 异步 HTTP | 基于 `httpx` 的异步请求、超时控制、状态轮询、错误映射与响应边界 |
-| CI 控制 | 本地 CI Lab、触发 Intent、质量门禁审批、签名 Webhook 接收、Run Artifact，以及 Jenkins/GitLab/BK-CI 的默认关闭适配与 Mock 契约测试 |
+| CI 控制 | 本地 CI Lab、触发 Intent、质量门禁审批、持久 Webhook Outbox/签名主动投递、Run Artifact，以及 Jenkins/GitLab/BK-CI 的默认关闭适配与 Mock 契约测试 |
 | 自动化调度 | 任务队列、独立 Worker/Scheduler、租约与心跳、重试与死信、设备分配、Cron claim/CAS 和任务唤醒 outbox |
 | 数据持久化 | SQLAlchemy、Alembic、SQLite，以及可选的 PostgreSQL 运行适配 |
 | 身份与安全 | Session、RBAC、CSRF 防护，以及隔离的 OIDC 与 Secret Store 学习边界 |
@@ -46,8 +46,10 @@ FastAPI 异步应用
 ```
 
 后端按路由、应用服务、领域模型、仓储和外部适配层拆分。流水线、存储、消息代理和身份服务通过窄接口接入，业务流程不直接依赖具体产品协议。
-Compose 中 schema 只由一次性 migration Job 修改；Web、Worker、Scheduler 和两个
+Compose 中 schema 只由一次性 migration Job 修改；Web、Worker、Scheduler 和 QA 侧两个
 Dispatcher 只验证 schema。Web 只写数据库事务 outbox，不持有 RabbitMQ 连接或凭据。
+CI Lab 另有一个独立 Webhook Worker，从 Lab 自有 SQLite 领取持久投递记录；
+这是单机教学拓扑，不是多实例高可用架构。
 
 ## 技术栈
 
@@ -120,7 +122,7 @@ pnpm build
 - 增加 OIDC、MFA 和 Secret Store 的隔离实验，保留本地账号作为默认认证方式。
 - 增加独立 Learning CI Lab，通过真实异步 HTTP 练习触发、轮询、取消、幂等和服务重启恢复。
 - 增加不可绕过的 CI 质量门禁、独立审批权限与防止触发人自批；Run 可保存经摘要校验、可补偿和可审计的测试报告/Artifact。
-- 增加独立 HMAC Webhook 接收边界，覆盖时间窗、重放、乱序、序列缺口、终态回退和轮询对账；CI Lab 当前尚未实现主动投递 Worker。
+- 增加独立 HMAC Webhook 接收与 CI Lab 主动投递：Connection/Correlation 签名绑定、持久 Outbox、单 Run 递增 sequence、租约/CAS、指数退避、死信和手工重试，并用快照 watermark 完成轮询对账。
 - 将 Provider HTTP 触发拆为持久 trigger intent、租约 claim、事务外 HTTP 和 CAS 结算，并提供独立 Provider Dispatcher。
 - 增加一次性 Alembic migration Job、PostgreSQL claim/CAS Scheduler，以及只发布无业务内容 RabbitMQ 唤醒提示的 transactional outbox/独立 Dispatcher。
 
@@ -130,7 +132,7 @@ pnpm build
 - 示例配置只保留通用开关；连接信息和凭据必须在未跟踪的本地环境中设置。
 - Jenkins、GitLab 和蓝盾适配器使用 Mock 契约或自建隔离服务验证，不连接任何真实组织系统。
 - 数据库、上传文件、构建产物、依赖目录和运行日志均被排除在版本控制之外。
-- 当前机器没有 Docker；真实 PostgreSQL/RabbitMQ、容器进程启动顺序、多实例竞争、
-  Worker 崩溃、Broker/数据库中断和故障注入尚未验证。
-- Web 当前保持单实例；CI Lab 也是单实例 SQLite 教学服务。项目不宣称生产级高可用、
+- 当前机器没有 Docker；真实 PostgreSQL/RabbitMQ、容器进程启动顺序、CI Lab 双向 HTTP、多实例竞争、
+  Worker 崩溃、Broker/数据库中断和故障注入尚未实机验证。
+- Web 当前保持单实例；CI Lab 是一个 API 进程加一个 Webhook Worker 共享本机 SQLite 的教学服务。项目不宣称生产级高可用、
   容量治理或合规审计能力。

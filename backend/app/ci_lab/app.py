@@ -8,12 +8,26 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from uuid import UUID
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Path as ApiPath, status
+from fastapi import (
+    Depends,
+    FastAPI,
+    Header,
+    HTTPException,
+    Path as ApiPath,
+    Query,
+    status,
+)
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from app.ci_lab.database import CiLabDatabase
-from app.ci_lab.models import GateDecisionRequest, RunView, TriggerRunRequest
+from app.ci_lab.models import (
+    GateDecisionRequest,
+    RunView,
+    TriggerRunRequest,
+    WebhookDeliveryStatus,
+    WebhookDeliveryView,
+)
 from app.ci_lab.registry import DEFAULT_DEFINITION_REGISTRY, DefinitionRegistry
 from app.ci_lab.service import CiLabError, CiLabService, Clock, utc_now
 
@@ -256,6 +270,33 @@ def create_ci_lab_app(
         run_id: UUID,
     ) -> RunView:
         return await service.decide_gate(run_id, payload)
+
+    @application.get(
+        "/api/v1/webhook-deliveries",
+        response_model=list[WebhookDeliveryView],
+        dependencies=[Depends(require_machine)],
+    )
+    async def list_webhook_deliveries(
+        delivery_status: WebhookDeliveryStatus | None = Query(
+            default=None,
+            alias="status",
+        ),
+        run_id: UUID | None = None,
+        limit: int = Query(default=100, ge=1, le=500),
+    ) -> list[WebhookDeliveryView]:
+        return await service.list_webhook_deliveries(
+            status=delivery_status,
+            run_id=run_id,
+            limit=limit,
+        )
+
+    @application.post(
+        "/api/v1/webhook-deliveries/{delivery_id}/retry",
+        response_model=WebhookDeliveryView,
+        dependencies=[Depends(require_machine)],
+    )
+    async def retry_webhook_delivery(delivery_id: UUID) -> WebhookDeliveryView:
+        return await service.retry_webhook_delivery(delivery_id)
 
     return application
 

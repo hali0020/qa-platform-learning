@@ -10,7 +10,7 @@
 2. 机器身份、固定出站地址、超时和响应上限；
 3. `correlation_id` / `Idempotency-Key` 如何防止重复触发；
 4. `queued → running → succeeded/failed/cancelled` 与质量门禁状态机；
-5. 轮询、签名 Webhook 接收、取消、重启恢复和错误脱敏；
+5. 轮询、持久签名 Webhook 主动投递/接收、取消、重启恢复和错误脱敏；
 6. trigger intent、独立 Dispatcher、Artifact 和 QA/CI 之间的一致性边界。
 
 容器启动与故障练习见
@@ -28,7 +28,8 @@ Provider Dispatcher ── HTTP ──> Learning CI Lab :23020 / 172.30.60.2:808
         │
         ├── fixed immutable definitions
         ├── deterministic run / quality-gate state machine
-        └── independent ci-lab.db
+        ├── subscription + persistent delivery outbox in ci-lab.db
+        └── Webhook Worker ── signed HTTP ──> QA receiver :23100
 ```
 
 QA 平台数据库只保存 Provider Connection 和归一化的 Provider Run。
@@ -62,6 +63,8 @@ POST /api/v1/definitions/{definition}/runs
 GET  /api/v1/runs/{run_id}
 POST /api/v1/runs/{run_id}/cancel
 POST /api/v1/runs/{run_id}/gate-decisions
+GET  /api/v1/webhook-deliveries
+POST /api/v1/webhook-deliveries/{delivery_id}/retry
 ```
 
 除 liveness 外全部要求 Bearer 机器 Token。触发还必须提供安全的
@@ -73,6 +76,40 @@ ID 幂等；QA 平台在调用它之前执行 `pipeline.approve` 与禁止触发
 大写 ASCII 键和普通字符串，凭据类键名、URL、父目录路径和控制字符
 会被拒绝。请求体上限为 16 KiB，Provider 响应也有硬上限并拒绝压缩
 内容，防止解压放大。
+
+开启回调的 Learning CI 触发会成对传入
+`webhook_connection_id + correlation_id`，且 correlation 必须与
+`Idempotency-Key` 一致。这是由 QA Provider 生成的不透明绑定；不包含
+host、URL、Secret 或命令。CI Lab 将它与 Run 的订阅同事务保存，后续每个
+已签名快照都携带同一绑定；QA 再同时核对接收路径、Connection 状态和
+本地 Run correlation。
+
+## 主动 Webhook 投递
+
+CI Lab 没有在 API 请求内直接回调 QA。Run/门禁的可见状态变化与一条
+不可变 Webhook body 在同一 SQLite 事务内写入 Outbox。每个 Run 使用从 1
+开始的连续 sequence，持久 event ID、原始 UTF-8 JSON、SHA-256 和安全状态元数据。
+重试始终对同一 event ID/body 签名，不重新生成事件。
+
+独立 Worker 每轮先主动物化有订阅的非终态 Run，即使没有人点击轮询也会
+把时间线变化写入 Outbox；然后按 Run 内 sequence 顺序领取一条 due 记录。
+`pending → claimed → delivered` 是正常路径；暂时网络/HTTP 故障进入
+`retry_wait` 并有界指数退避，不可重试错误、payload 完整性失败或耗尽尝试
+进入 `dead_letter`。领取只把租约 token 摘要和 version 存入数据库，HTTP 在事务外
+发送，结算必须再次通过 owner/token/version/到期校验。低 sequence 未送达时不会
+跳过它投递同 Run 的高 sequence。
+
+Worker 不接受 URL 配置：源码模式只能到
+`http://127.0.0.1:23100`，Compose 模式只能到 CI Lab 内部网中的固定
+`http://172.30.60.3:23100`，路径也只由已验证的 Connection UUID 组成。客户端
+关闭环境代理和重定向，限制超时与响应大小。`GET /webhook-deliveries`
+只返回安全元数据；死信可用机器 Bearer 调用 `POST .../{id}/retry`
+手工恢复。这两个端点都不回显原始 body、签名、目标、Secret 或租约 token。
+
+QA 轮询仍是权威对账通道。CI Lab Run 元数据只要已产生回调序列，就包含
+`webhook_sequence` watermark。成功 poll/gate-decision 快照可将 QA reducer
+推进到该 watermark 并清除对账标记；较晚到达的旧回调被归类为 stale，
+不会把状态倒退。
 
 ## 内置定义
 
@@ -91,7 +128,7 @@ ID 幂等；QA 平台在调用它之前执行 `pipeline.approve` 与禁止触发
 
 ## 两种本机运行方式
 
-### 方式一：源码双进程
+### 方式一：源码本机进程拓扑
 
 运行：
 
@@ -100,13 +137,14 @@ ID 幂等；QA 平台在调用它之前执行 `pipeline.approve` 与禁止触发
 ```
 
 脚本只在当前用户固定本地磁盘的 `LocalApplicationData` 下创建随机直接子目录，
-关闭 ACL 继承并只授予当前用户，再写入临时机器 Token 文件；独立 Webhook Secret
-只保留在本轮进程环境。随后它以隐藏后台进程
-启动 `app.ci_lab.main:app` 并绑定 `127.0.0.1:23020`，再在前台迁移并启动
-`127.0.0.1:23100` 的 QA backend。它只在本次进程设置 `ci_lab_local`、固定
-Secret allowlist、机器 Token 与独立 Webhook Secret；不会修改 `.env`、不会输出
-Secret。按 Ctrl+C
-会停止脚本创建的 Lab 子进程并删除本轮 Token 文件。前端仍在另一个终端使用
+关闭 ACL 继承并只授予当前用户，再写入两个临时 Secret 文件。随后它以隐藏
+后台进程启动 `app.ci_lab.main:app` 和独立
+`app.ci_lab.webhook_worker_main`，两者共享固定本地 `ci-lab.db`；再在前台
+迁移并启动 `127.0.0.1:23100` 的 QA backend。Lab API 绑定
+`127.0.0.1:23020`，Webhook Worker 的反向目标只能是
+`127.0.0.1:23100`。脚本只在本次进程设置 `ci_lab_local` 和固定 Secret
+allowlist；不会修改 `.env`、不会输出 Secret。按 Ctrl+C 会停止脚本创建的
+Lab/Worker 子进程并删除本轮 Secret 文件。前端仍在另一个终端使用
 `.\scripts\start-frontend.ps1`。
 
 源码脚本不继承调用者的数据库或其他实验服务：QA 数据固定写入
@@ -125,8 +163,11 @@ Secret。按 Ctrl+C
 .\scripts\start-ci-lab.ps1
 ```
 
-脚本只对本次进程设置 `ci_lab_local`，并将容器目标固定为
-`http://172.30.60.2:8080`。平台不读取任意 Host/CIDR/Port 配置。
+脚本只对本次进程设置 `ci_lab_local`。QA→CI 目标固定为
+`http://172.30.60.2:8080`，CI→QA 回调目标固定为
+`http://172.30.60.3:23100`。平台和 Worker 都不读取任意 Host/CIDR/Port/URL
+配置。Webhook HMAC Secret 只挂载到独立投递 Worker 的只读文件；CI Lab
+API 不需要持有它。
 
 ## 学习顺序
 
@@ -142,11 +183,14 @@ Secret。按 Ctrl+C
 6. 用相同 correlation ID 重放相同请求，再修改参数重放，比较 replay 与 conflict。
 7. 上传 JSON/JUnit XML 测试报告或普通 Artifact，观察
    `pending → ready/failed → deleted`、摘要和审计。
-8. 用测试客户端向独立机器 Webhook 路由发送签名事件，练习 duplicate、stale、gap
-   与 terminal regression，再用轮询对账。CI Lab 当前不会主动投递这些事件。
-9. 在终态前取消，再尝试对成功/失败终态取消。
-10. 停止 CI Lab，观察有界超时和脱敏错误；恢复后继续查询原 Run。
-11. 切回 `local_lab`，即使 Lab 仍运行，也要确认 QA 平台不再打开 socket。
+8. 观察 Worker 主动产生和投递 `queued/running/waiting_approval`
+   快照；查询安全 delivery 列表，停止 QA 后观察 `retry_wait`，让一条进入
+   `dead_letter` 再使用机器 API 手工 retry。
+9. 仍用测试客户端验证 duplicate、stale、gap 与 terminal regression，再用
+   轮询快照的 `webhook_sequence` watermark 对账。
+10. 在终态前取消，再尝试对成功/失败终态取消。
+11. 停止 CI Lab API 或 Webhook Worker，分别观察有界超时、租约过期、退避与恢复。
+12. 切回 `local_lab`，即使 Lab 仍运行，也要确认 QA 平台不再打开 socket。
 
 ## 安全不变式
 
@@ -158,6 +202,10 @@ Secret。按 Ctrl+C
 - Token 只作为机器凭据传递，不存入 Connection/Run，不记日志，不进入 URL。
 - 出站 Bearer Token 与入站 Webhook HMAC Secret 相互独立；Webhook 不使用浏览器
   Session/CSRF，验签前按原始字节限制为 16 KiB。
+- Webhook Secret 只交给 QA 验签端和独立投递 Worker，CI Lab API 不持有；
+  两类机器 API 都不回显 Secret、签名、payload 或租约 token。
+- 发送目标只由运行模式选择两个代码常量之一；
+  `CI_LAB_WEBHOOK_TARGET_URL` 一类任意覆盖会失败关闭。
 - CI Lab 不提供 Shell、子进程、Git clone、Docker socket、任意 URL 或动态插件。
 
 ## 六 B/六 C 已编码范围
@@ -166,6 +214,8 @@ Secret。按 Ctrl+C
 - 质量门禁审批、触发人自批防护、审批幂等和 Webhook 防绕过。
 - Provider Run Artifact 的 Storage Port、摘要、pending、补偿、删除恢复和审计。
 - 独立签名 Webhook 接收、事件收据、重放/乱序/缺口/终态回退与对账标记。
+- CI Lab 持久 Webhook subscription/delivery Outbox、独立 Worker 主动状态物化、
+  sequence 顺序、租约/CAS、退避/死信、安全列表/手工重试和 watermark 对账。
 - 一次性 migration Job、独立 PostgreSQL Scheduler claim/CAS，以及与任务同事务的
   content-free Rabbit wake-up outbox/独立 Dispatcher；Web 不持有 Broker。
 
@@ -175,11 +225,13 @@ Secret。按 Ctrl+C
 ## 当前验证边界
 
 已完成的是代码、SQLite/替身测试、PostgreSQL SQL 方言和进程边界的自动化验证，
-不是生产 CI 或高可用部署。CI Lab 目前没有主动 webhook delivery Worker，只有 QA
-平台的独立签名接收链路；真实 Jenkins、GitLab、BK-CI 和公司系统始终关闭。
+不是生产 CI 或高可用部署。CI Lab 主动 delivery Worker 已编码，但仅限一个
+Lab API 与一个 Worker 共享本机 SQLite 的拓扑；真实 Jenkins、GitLab、BK-CI 和
+公司系统始终关闭。
 
-当前机器没有 Docker，因此源码双进程、Python 状态机、契约和隔离边界可以在
+当前机器没有 Docker，因此源码进程、Python 状态机、契约和隔离边界可以在
 宿主机验证，但镜像构建、固定容器 IP、容器间真实 HTTP、容器停机和恢复演练
 仍需在个人隔离 Docker 环境补做。真实 PostgreSQL/RabbitMQ、多实例 Scheduler/
 Worker/Dispatcher、重复消息、崩溃/租约过期、Broker/数据库中断、备份恢复和故障
-注入均未验收。Web 当前保持单实例，CI Lab 也是单实例 SQLite，不宣称 HA。
+注入均未验收。Web 当前保持单实例，CI Lab 保持单 API + 单 Webhook Worker
+SQLite 拓扑，不宣称 HA。

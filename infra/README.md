@@ -40,5 +40,6 @@ secret；root token 与 unseal key 永远不挂载给应用。
 当前机器没有 Docker。上述 migration/进程入口、PostgreSQL SQL 形状、outbox 和状态机
 已有自动化验证，但真实 PostgreSQL/RabbitMQ、多 Worker/Scheduler/Dispatcher、重复
 消息、进程崩溃、Broker/数据库中断和备份恢复尚未实跑。Web 当前保持单实例，CI Lab
-也是单实例 SQLite；不宣称 HA。CI Lab 还没有主动 webhook delivery Worker，只验证
-QA 平台的独立签名接收链路。Jenkins/GitLab/BK-CI 和公司系统仍关闭。
+只支持单 API + 单 Webhook Worker 共享 SQLite；不宣称 HA。持久主动 Webhook
+Outbox/Worker 已有自动化验证，但固定 IP 双向 HTTP、崩溃/租约/死信恢复尚未
+容器实测。Jenkins/GitLab/BK-CI 和公司系统仍关闭。

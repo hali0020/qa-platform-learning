@@ -7,8 +7,9 @@ import re
 from datetime import datetime
 from enum import Enum
 from typing import Any
+from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 _REF = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
@@ -64,6 +65,14 @@ class QualityGateStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
+class WebhookDeliveryStatus(str, Enum):
+    PENDING = "pending"
+    CLAIMED = "claimed"
+    RETRY_WAIT = "retry_wait"
+    DELIVERED = "delivered"
+    DEAD_LETTER = "dead_letter"
+
+
 class GateDecision(str, Enum):
     APPROVE = "approve"
     REJECT = "reject"
@@ -112,6 +121,10 @@ class GateDecisionRequest(StrictModel):
 class TriggerRunRequest(StrictModel):
     ref: str | None = Field(default=None, max_length=128)
     variables: dict[str, str] = Field(default_factory=dict, repr=False)
+    # The pair is an opaque binding to a QA run. It is never interpreted as a
+    # URL, host, secret or command by CI Lab.
+    webhook_connection_id: UUID | None = None
+    correlation_id: str | None = Field(default=None, max_length=200)
 
     @field_validator("ref")
     @classmethod
@@ -159,6 +172,23 @@ class TriggerRunRequest(StrictModel):
                 f"the canonical variable document cannot exceed {_MAX_VARIABLES_JSON_BYTES} bytes"
             )
         return normalized
+
+    @field_validator("correlation_id")
+    @classmethod
+    def validate_correlation_id(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,199}", value) is None:
+            raise ValueError("correlation_id must contain only safe ASCII characters")
+        return value
+
+    @model_validator(mode="after")
+    def validate_webhook_binding(self) -> "TriggerRunRequest":
+        if (self.webhook_connection_id is None) != (self.correlation_id is None):
+            raise ValueError(
+                "webhook_connection_id and correlation_id must be supplied together"
+            )
+        return self
 
 
 class JobView(StrictModel):
@@ -217,6 +247,28 @@ class RunView(StrictModel):
     replayed: bool = False
 
 
+class WebhookDeliveryView(StrictModel):
+    id: str
+    run_id: str
+    connection_id: UUID
+    event_id: str
+    sequence: int
+    occurred_at: datetime
+    normalized_status: RunStatus
+    status: WebhookDeliveryStatus
+    attempts: int
+    max_attempts: int
+    available_at: datetime
+    lease_owner: str | None
+    lease_expires_at: datetime | None
+    last_error_code: str | None
+    version: int
+    created_at: datetime
+    updated_at: datetime
+    delivered_at: datetime | None
+    dead_lettered_at: datetime | None
+
+
 class DefinitionJobView(StrictModel):
     key: str
     name: str
@@ -253,4 +305,6 @@ __all__ = [
     "StageView",
     "StrictModel",
     "TriggerRunRequest",
+    "WebhookDeliveryStatus",
+    "WebhookDeliveryView",
 ]

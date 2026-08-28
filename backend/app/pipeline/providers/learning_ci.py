@@ -4,6 +4,7 @@ import re
 from collections.abc import Mapping
 from typing import Any
 from urllib.parse import quote
+from uuid import UUID
 
 import httpx
 from pydantic import ValidationError
@@ -72,6 +73,7 @@ class LearningCiPipelineProvider(ExternalHttpProvider):
         definition_id: str,
         bearer_token: str,
         policy: OutboundPolicy,
+        webhook_connection_id: str | None = None,
         enabled: bool = False,
         resolver: AddressResolver = default_resolver,
         transport: httpx.AsyncBaseTransport | None = None,
@@ -112,6 +114,20 @@ class LearningCiPipelineProvider(ExternalHttpProvider):
         super().__init__(client, enabled=enabled)
         self._definition_id = definition_id
         self._definition_path = quote(definition_id, safe="")
+        if webhook_connection_id is None:
+            self._webhook_connection_id = None
+        else:
+            try:
+                selected_connection_id = str(UUID(webhook_connection_id))
+            except (TypeError, ValueError, AttributeError):
+                raise ProviderConfigurationError(
+                    "Learning CI webhook connection id is invalid"
+                ) from None
+            if selected_connection_id != webhook_connection_id:
+                raise ProviderConfigurationError(
+                    "Learning CI webhook connection id must be canonical"
+                )
+            self._webhook_connection_id = selected_connection_id
         self._headers = {
             "Authorization": f"Bearer {bearer_token}",
             "Accept": "application/json",
@@ -156,14 +172,22 @@ class LearningCiPipelineProvider(ExternalHttpProvider):
             )
         headers = dict(self._headers)
         headers["Idempotency-Key"] = request.correlation_id
+        trigger_body: dict[str, object] = {
+            "ref": request.ref,
+            "variables": request.variables,
+        }
+        if self._webhook_connection_id is not None:
+            trigger_body.update(
+                {
+                    "webhook_connection_id": self._webhook_connection_id,
+                    "correlation_id": request.correlation_id,
+                }
+            )
         response = await self._client.request(
             "POST",
             f"/api/v1/definitions/{self._definition_path}/runs",
             headers=headers,
-            json_body={
-                "ref": request.ref,
-                "variables": request.variables,
-            },
+            json_body=trigger_body,
         )
         payload = self._json_object(response, {200, 201, 202})
         return self._normalize(payload)

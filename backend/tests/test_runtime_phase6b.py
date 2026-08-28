@@ -17,7 +17,7 @@ from app.core.errors import AuthorizationError, BusinessValidationError, Conflic
 from app.database.models import RoleRecord, UserRecord
 from app.database.session import Database
 from app.pipeline.models import PipelineStatus
-from app.pipeline.providers import ProviderConfigurationError
+from app.pipeline.providers import ProviderConfigurationError, ProviderResponseError
 from app.pipeline.providers.models import (
     ProviderApproval,
     ProviderGateDecisionRequest,
@@ -222,6 +222,8 @@ def _signed_webhook(
     sequence: int,
     status: str,
     occurred_at: datetime,
+    connection_id: str,
+    correlation_id: str,
     message: str | None = None,
 ) -> tuple[bytes, list[tuple[bytes, bytes]]]:
     payload = {
@@ -230,6 +232,8 @@ def _signed_webhook(
         "occurred_at": occurred_at.isoformat(),
         "status": status,
         "message": message,
+        "connection_id": connection_id,
+        "correlation_id": correlation_id,
     }
     raw_body = json.dumps(
         payload,
@@ -292,6 +296,211 @@ async def test_trigger_outbox_is_committed_before_provider_io_and_is_idempotent(
         assert settled.lease_owner is None
         assert settled.lease_expires_at is None
         assert await service.dispatch_provider_trigger_once("phase6-worker") is None
+    finally:
+        await service.shutdown()
+        await database.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_first_webhook_can_bind_run_before_dispatch_finalize_by_correlation(
+    tmp_path: Path,
+) -> None:
+    database, service, fake, connection = await _new_learning_service(
+        tmp_path,
+        definition_ref="local-pipeline",
+        webhook=True,
+    )
+    correlation_id = "phase6-early-webhook-1"
+    external_id = "phase6-early-external-1"
+    observed_results = []
+    replay_request: tuple[bytes, list[tuple[bytes, bytes]]] | None = None
+
+    async def trigger_with_early_webhook(request):
+        nonlocal replay_request
+        assert request.correlation_id == correlation_id
+        body, headers = _signed_webhook(
+            event_id="event-before-dispatch-finalize-1",
+            external_id=external_id,
+            sequence=1,
+            status="queued",
+            occurred_at=datetime.now(timezone.utc),
+            connection_id=connection.id,
+            correlation_id=correlation_id,
+        )
+        replay_request = (body, headers)
+        observed_results.append(
+            await service.process_learning_ci_webhook(
+                connection.id,
+                raw_body=body,
+                raw_headers=headers,
+            )
+        )
+        return ProviderRun(
+            provider=ProviderKind.LEARNING_CI,
+            external_id=external_id,
+            status=PipelineStatus.QUEUED,
+            raw_status="queued",
+            metadata={"webhook_sequence": 1},
+        )
+
+    fake.trigger = trigger_with_early_webhook
+    try:
+        pending = await service.trigger_provider(
+            connection.id,
+            ProviderTriggerPayload(correlation_id=correlation_id),
+        )
+        assert pending.external_id is None
+        assert pending.dispatch_status == "pending"
+
+        dispatched = await service.dispatch_provider_trigger_once(
+            "early-webhook-worker"
+        )
+        assert dispatched is not None
+        assert len(observed_results) == 1
+        assert observed_results[0].result == "applied"
+        assert observed_results[0].run_id == pending.id
+        assert dispatched.id == pending.id
+        assert dispatched.external_id == external_id
+        assert dispatched.correlation_id == correlation_id
+        assert dispatched.dispatch_status == "dispatched"
+        assert dispatched.last_provider_sequence == 1
+        assert dispatched.reconciliation_required is False
+
+        assert replay_request is not None
+        duplicate = await service.process_learning_ci_webhook(
+            connection.id,
+            raw_body=replay_request[0],
+            raw_headers=replay_request[1],
+        )
+        assert duplicate.result == "duplicate"
+        assert duplicate.run_id == pending.id
+        final = await service.get_provider_run(connection.id, pending.id)
+        assert final.external_id == external_id
+        assert final.last_provider_sequence == 1
+    finally:
+        await service.shutdown()
+        await database.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_newer_webhook_snapshot_is_not_overwritten_by_trigger_response(
+    tmp_path: Path,
+) -> None:
+    database, service, fake, connection = await _new_learning_service(
+        tmp_path,
+        definition_ref="local-pipeline",
+        webhook=True,
+    )
+    correlation_id = "phase6-newer-webhook-wins"
+    external_id = "phase6-newer-webhook-external"
+
+    async def trigger_with_two_early_webhooks(request):
+        for sequence, status in ((1, "queued"), (2, "running")):
+            body, headers = _signed_webhook(
+                event_id=f"event-newer-webhook-wins-{sequence}",
+                external_id=external_id,
+                sequence=sequence,
+                status=status,
+                occurred_at=datetime.now(timezone.utc),
+                connection_id=connection.id,
+                correlation_id=correlation_id,
+            )
+            result = await service.process_learning_ci_webhook(
+                connection.id,
+                raw_body=body,
+                raw_headers=headers,
+            )
+            assert result.result == "applied"
+        # This is the older trigger HTTP snapshot that was prepared after the
+        # first event but before the second event reached QA.
+        return ProviderRun(
+            provider=ProviderKind.LEARNING_CI,
+            external_id=external_id,
+            status=PipelineStatus.QUEUED,
+            raw_status="queued",
+            metadata={"webhook_sequence": 1},
+        )
+
+    fake.trigger = trigger_with_two_early_webhooks
+    try:
+        pending = await service.trigger_provider(
+            connection.id,
+            ProviderTriggerPayload(correlation_id=correlation_id),
+        )
+        dispatched = await service.dispatch_provider_trigger_once(
+            "newer-webhook-worker"
+        )
+
+        assert dispatched is not None
+        assert dispatched.id == pending.id
+        assert dispatched.external_id == external_id
+        assert dispatched.dispatch_status == "dispatched"
+        assert dispatched.status == "running"
+        assert dispatched.raw_status == "running"
+        assert dispatched.last_provider_sequence == 2
+        assert dispatched.reconciliation_required is False
+        [intent] = await service.list_provider_trigger_intents()
+        assert intent.status == "succeeded"
+    finally:
+        await service.shutdown()
+        await database.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_verified_webhook_prevents_trigger_error_from_regressing_run(
+    tmp_path: Path,
+) -> None:
+    database, service, fake, connection = await _new_learning_service(
+        tmp_path,
+        definition_ref="local-pipeline",
+        webhook=True,
+    )
+    correlation_id = "phase6-webhook-before-timeout"
+    external_id = "phase6-webhook-before-timeout-external"
+
+    async def trigger_with_webhook_then_error(request):
+        body, headers = _signed_webhook(
+            event_id="event-webhook-before-timeout",
+            external_id=external_id,
+            sequence=1,
+            status="running",
+            occurred_at=datetime.now(timezone.utc),
+            connection_id=connection.id,
+            correlation_id=correlation_id,
+        )
+        applied = await service.process_learning_ci_webhook(
+            connection.id,
+            raw_body=body,
+            raw_headers=headers,
+        )
+        assert applied.result == "applied"
+        raise ProviderResponseError("simulated response timeout")
+
+    fake.trigger = trigger_with_webhook_then_error
+    try:
+        pending = await service.trigger_provider(
+            connection.id,
+            ProviderTriggerPayload(correlation_id=correlation_id),
+        )
+        settled = await service.dispatch_provider_trigger_once(
+            "webhook-before-timeout-worker"
+        )
+
+        assert settled is not None
+        assert settled.id == pending.id
+        assert settled.external_id == external_id
+        assert settled.dispatch_status == "dispatched"
+        assert settled.status == "running"
+        assert settled.raw_status == "running"
+        assert settled.last_provider_sequence == 1
+        assert settled.reconciliation_required is False
+        [intent] = await service.list_provider_trigger_intents()
+        assert intent.status == "succeeded"
+        assert intent.last_error_code is None
+        assert intent.completed_at is not None
+        assert await service.dispatch_provider_trigger_once(
+            "webhook-before-timeout-worker"
+        ) is None
     finally:
         await service.shutdown()
         await database.shutdown()
@@ -471,6 +680,8 @@ async def test_quality_gate_cannot_be_bypassed_by_a_success_webhook(
             sequence=1,
             status="succeeded",
             occurred_at=datetime.now(timezone.utc),
+            connection_id=connection.id,
+            correlation_id="phase6-gate-webhook",
         )
         result = await service.process_learning_ci_webhook(
             connection.id,
@@ -511,12 +722,50 @@ async def test_signed_webhook_handles_replay_conflict_gaps_and_terminal_regressi
         external_id = dispatched.external_id
         occurred_at = datetime.now(timezone.utc)
 
+        legacy_body = json.dumps(
+            {
+                "external_id": external_id,
+                "sequence": 1,
+                "occurred_at": occurred_at.isoformat(),
+                "status": "running",
+                "message": None,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        legacy_timestamp = int(datetime.now(timezone.utc).timestamp())
+        legacy_event_id = "legacy-unbound-event-1"
+        legacy_signature = sign_webhook(
+            WEBHOOK_SECRET.encode("utf-8"),
+            timestamp=legacy_timestamp,
+            event_id=legacy_event_id,
+            raw_body=legacy_body,
+        )
+        with pytest.raises(BusinessValidationError, match="格式"):
+            await service.process_learning_ci_webhook(
+                connection.id,
+                raw_body=legacy_body,
+                raw_headers=[
+                    (b"x-qa-webhook-event-id", legacy_event_id.encode("ascii")),
+                    (
+                        b"x-qa-webhook-timestamp",
+                        str(legacy_timestamp).encode("ascii"),
+                    ),
+                    (
+                        b"x-qa-webhook-signature",
+                        legacy_signature.encode("ascii"),
+                    ),
+                ],
+            )
+
         body, headers = _signed_webhook(
             event_id="event-running-1",
             external_id=external_id,
             sequence=1,
             status="running",
             occurred_at=occurred_at,
+            connection_id=connection.id,
+            correlation_id="phase6-webhook-1",
         )
         applied = await service.process_learning_ci_webhook(
             connection.id,
@@ -537,6 +786,8 @@ async def test_signed_webhook_handles_replay_conflict_gaps_and_terminal_regressi
             sequence=1,
             status="running",
             occurred_at=occurred_at,
+            connection_id=connection.id,
+            correlation_id="phase6-webhook-1",
             message="same event id, different body",
         )
         with pytest.raises(ConflictError, match="event_id"):
@@ -552,6 +803,8 @@ async def test_signed_webhook_handles_replay_conflict_gaps_and_terminal_regressi
             sequence=1,
             status="queued",
             occurred_at=occurred_at,
+            connection_id=connection.id,
+            correlation_id="phase6-webhook-1",
         )
         stale = await service.process_learning_ci_webhook(
             connection.id,
@@ -566,6 +819,8 @@ async def test_signed_webhook_handles_replay_conflict_gaps_and_terminal_regressi
             sequence=3,
             status="succeeded",
             occurred_at=occurred_at,
+            connection_id=connection.id,
+            correlation_id="phase6-webhook-1",
         )
         gap = await service.process_learning_ci_webhook(
             connection.id,
@@ -581,6 +836,8 @@ async def test_signed_webhook_handles_replay_conflict_gaps_and_terminal_regressi
             sequence=2,
             status="succeeded",
             occurred_at=occurred_at,
+            connection_id=connection.id,
+            correlation_id="phase6-webhook-1",
         )
         success = await service.process_learning_ci_webhook(
             connection.id,
@@ -596,6 +853,8 @@ async def test_signed_webhook_handles_replay_conflict_gaps_and_terminal_regressi
             sequence=3,
             status="running",
             occurred_at=occurred_at,
+            connection_id=connection.id,
+            correlation_id="phase6-webhook-1",
         )
         regression = await service.process_learning_ci_webhook(
             connection.id,
