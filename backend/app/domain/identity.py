@@ -46,6 +46,7 @@ class PermissionCode(str, Enum):
     ATTACHMENT_MODERATE = "attachment.moderate"
     PIPELINE_READ = "pipeline.read"
     PIPELINE_MANAGE = "pipeline.manage"
+    PIPELINE_APPROVE = "pipeline.approve"
 
 
 class UserAccount(BaseModel):

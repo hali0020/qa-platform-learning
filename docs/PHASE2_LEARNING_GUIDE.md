@@ -222,7 +222,7 @@ Worker claim 任务后得到一次性租约 Token；数据库只保存 Token 摘
 - fire key：确保同一计划时刻不会重复入队；
 - `next_run_at` 与 fire 历史：支持恢复、审计和手动触发。
 
-`/automation/tasks`、`/automation/devices` 和 `/automation/schedules` 已接入上述持久模型，便于从 HTTP 手工驱动 Worker、Agent 和 tick 练习。当前实现仍用于单机学习；生产环境必须把 Web、Worker 和 Scheduler 拆成独立进程，并解决多 Scheduler 领导者选举、数据库锁/CAS、事务 outbox、消息代理和 Handler 幂等。
+`/automation/tasks`、`/automation/devices` 和 `/automation/schedules` 已接入上述持久模型，便于从 HTTP 手工驱动 Worker、Agent 和 tick 练习。阶段六 C 已编码独立 Worker/Scheduler、PostgreSQL claim/CAS 和任务 wake-up outbox/Dispatcher；SQLite 的 HTTP tick 仍只用于单进程教学。生产前还必须完成真实多实例、故障注入、Handler 幂等和备份恢复验收。
 
 ### 练习 6：模拟故障恢复
 
@@ -258,8 +258,11 @@ QA Repository、自动化运行时和流水线快照已共用异步 SQLAlchemy �
 ### 为什么还不能叫生产部署
 
 1. 默认 SQLite、进程内锁和部分跨 Repository 多次提交不支持多 Worker/多实例一致性；可选 PostgreSQL 适配也尚未完成多实例并发验证。
-2. Web 进程仍承担部分本地后台行为；生产应拆 Worker、Scheduler、迁移 Job。
-3. 已有内部 RabbitMQ 唤醒提示与 Worker 骨架，但没有 SQLite→PostgreSQL 数据搬迁、高可用数据库、对象存储、事务 outbox、Secret Manager、备份恢复和灾难演练。
+2. Compose 已表达 Worker、Scheduler、migration Job 和 Dispatcher 的独立进程边界，
+   但当前机器没有 Docker，Web 仍保持单实例，不能把代码拆分当作分布式验收。
+3. 已有 transactional wake-up outbox 和固定无内容 RabbitMQ 提示，但没有
+   SQLite→PostgreSQL 数据搬迁、高可用数据库、全量 Secret 启动注入、备份恢复和
+   灾难演练。
 4. 没有企业入口层的 TLS/WAF/限流、网络 egress policy 和统一身份。
 5. 没有镜像签名、SBOM、漏洞扫描、资源配额、滚动/蓝绿发布和自动回滚。
 6. 现有审计、日志留存与告警通知不满足合规要求。
@@ -283,12 +286,19 @@ QA Repository、自动化运行时和流水线快照已共用异步 SQLAlchemy �
 4. 指标：为每个指标添加一组可手算 fixture 和口径说明。
 5. Provider：只用 Mock 新增一个供应商适配器，先写契约测试。
 6. 调度：写两个幂等 Handler，演示进程崩溃后重复投递。
-7. 交付：把迁移、Web、Worker 和 Scheduler 拆成部署单元，再设计回滚。
+7. 交付：检查已拆分的 migration、Web、Worker、Scheduler 与 Dispatcher 启动依赖，
+   再设计数据库兼容迁移、失败回滚和成对恢复。
 
 完成一个练习的标准：本机可复现、有测试、没有真实凭据或公司连接，并且能解释故障时会发生什么。
 
 ## 10. 阶段三延伸：独立 Worker 与 RabbitMQ
 
-当前已新增只允许 `postgres_local_container + rabbitmq_local_container` 的独立 Worker 进程骨架。消息只包含固定唤醒提示，数据库 claim 才授予租约；没有消息时仍周期轮询数据库。四种 Handler 都是固定、确定性的本机模拟，不允许 Payload 指定 import、命令、子进程或 URL。详细实现、故障语义与容器命令见 [PHASE3_WORKER_AND_BROKER.md](PHASE3_WORKER_AND_BROKER.md) 和 [DEPLOYMENT_PHASE3.md](../infra/DEPLOYMENT_PHASE3.md)。
+当前已新增只允许 `postgres_local_container + rabbitmq_local_container` 的独立 Worker
+进程。任务与 wake-up outbox 同事务创建，独立 Dispatcher 只发布固定无内容提示，
+Web 不连接 Broker；数据库 claim 才授予租约，没有消息时仍周期轮询。阶段六 C 另有
+一次性 migration Job 和 PostgreSQL claim/CAS Scheduler。四种 Handler 都是固定、
+确定性的本机模拟，不允许 Payload 指定 import、命令、子进程或 URL。详细实现、
+故障语义与容器命令见 [PHASE3_WORKER_AND_BROKER.md](PHASE3_WORKER_AND_BROKER.md) 和
+[DEPLOYMENT_PHASE3.md](../infra/DEPLOYMENT_PHASE3.md)。
 
 当前机器没有 Docker，因此多 Worker、RabbitMQ 断线和真实 PostgreSQL 并发尚未容器实跑；现阶段只能声明代码与静态拓扑已准备，不能声明分布式生产能力已经验证。

@@ -3,10 +3,29 @@
 from __future__ import annotations
 
 from typing import Annotated, Any
+from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    UploadFile,
+    status,
+)
+from fastapi.responses import StreamingResponse
+from starlette.background import BackgroundTask
 
-from app.api.dependencies import require_method_permission
+from app.api.dependencies import (
+    get_container,
+    get_current_principal,
+    require_method_permission,
+    require_permission,
+)
+from app.container import ApplicationContainer
+from app.domain.identity import PermissionCode, Principal
 from app.runtime.schemas import (
     DeviceAcquire,
     DeviceCreate,
@@ -16,6 +35,8 @@ from app.runtime.schemas import (
     DevicePatch,
     ProviderConnectionCreate,
     ProviderConnectionPatch,
+    ProviderRunApprovalPayload,
+    ProviderTriggerDispatch,
     ProviderTriggerPayload,
     ScheduleCreate,
     SchedulePatch,
@@ -28,6 +49,8 @@ from app.runtime.schemas import (
     TaskHeartbeat,
 )
 from app.runtime.service import PersistentRuntimeService
+from app.runtime.artifacts import ArtifactKind, ProviderRunArtifactService
+from app.runtime.webhook_security import RawBodyBuffer, WebhookSecurityError
 from app.schemas.response import ApiResponse
 
 
@@ -36,6 +59,22 @@ def get_runtime_service(request: Request) -> PersistentRuntimeService:
 
 
 RuntimeService = Annotated[PersistentRuntimeService, Depends(get_runtime_service)]
+Container = Annotated[ApplicationContainer, Depends(get_container)]
+CurrentPrincipal = Annotated[Principal, Depends(get_current_principal)]
+
+
+def get_provider_artifact_service(
+    container: Container,
+) -> ProviderRunArtifactService:
+    if container.provider_artifacts is None:
+        raise RuntimeError("Provider Artifact 服务未初始化")
+    return container.provider_artifacts
+
+
+ProviderArtifacts = Annotated[
+    ProviderRunArtifactService,
+    Depends(get_provider_artifact_service),
+]
 
 
 def _data(value: Any) -> Any:
@@ -111,6 +150,26 @@ async def trigger_connection(
     return ApiResponse(data=_data(await service.trigger_provider(connection_id, payload)))
 
 
+@integrations_router.get("/trigger-intents/all", response_model=ApiResponse)
+async def list_trigger_intents(service: RuntimeService) -> ApiResponse:
+    return ApiResponse(data=_data(await service.list_provider_trigger_intents()))
+
+
+@integrations_router.post("/trigger-intents/dispatch-one", response_model=ApiResponse)
+async def dispatch_trigger_intent(
+    payload: ProviderTriggerDispatch,
+    service: RuntimeService,
+) -> ApiResponse:
+    return ApiResponse(
+        data=_data(
+            await service.dispatch_provider_trigger_once(
+                payload.worker_id,
+                payload.lease_seconds,
+            )
+        )
+    )
+
+
 @integrations_router.get("/{connection_id}/runs", response_model=ApiResponse)
 async def list_connection_runs(
     connection_id: str, service: RuntimeService
@@ -136,6 +195,168 @@ async def cancel_connection_run(
     return ApiResponse(data=_data(await service.cancel_provider_run(connection_id, run_id)))
 
 
+quality_gate_router = APIRouter(
+    prefix="/integrations/connections",
+    tags=["integration-quality-gates"],
+    dependencies=[Depends(require_permission(PermissionCode.PIPELINE_APPROVE))],
+)
+
+
+@quality_gate_router.post(
+    "/{connection_id}/runs/{run_id}/gate-decisions",
+    response_model=ApiResponse,
+)
+async def decide_quality_gate(
+    connection_id: str,
+    run_id: str,
+    payload: ProviderRunApprovalPayload,
+    service: RuntimeService,
+) -> ApiResponse:
+    return ApiResponse(
+        data=_data(
+            await service.decide_provider_quality_gate(
+                connection_id,
+                run_id,
+                payload,
+            )
+        )
+    )
+
+
+webhooks_router = APIRouter(prefix="/webhooks", tags=["machine-webhooks"])
+
+
+@webhooks_router.post(
+    "/learning-ci/{connection_id}",
+    response_model=ApiResponse,
+)
+async def receive_learning_ci_webhook(
+    connection_id: str,
+    request: Request,
+    service: RuntimeService,
+) -> ApiResponse:
+    buffer = RawBodyBuffer()
+    try:
+        async for chunk in request.stream():
+            buffer.append(chunk)
+    except WebhookSecurityError:
+        raise HTTPException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            detail="Webhook 请求体超过 16 KiB",
+        ) from None
+    result = await service.process_learning_ci_webhook(
+        connection_id,
+        raw_body=buffer.finish(),
+        raw_headers=list(request.scope.get("headers", ())),
+    )
+    return ApiResponse(data=_data(result))
+
+
+artifacts_router = APIRouter(
+    prefix="/integrations/connections",
+    tags=["integration-artifacts"],
+    dependencies=[
+        Depends(require_method_permission("integrations.read", "integrations.manage"))
+    ],
+)
+
+
+@artifacts_router.get(
+    "/{connection_id}/runs/{run_id}/artifacts",
+    response_model=ApiResponse,
+)
+async def list_provider_artifacts(
+    connection_id: str,
+    run_id: str,
+    _: CurrentPrincipal,
+    service: ProviderArtifacts,
+) -> ApiResponse:
+    return ApiResponse(
+        data=_data(
+            await service.list(connection_id=connection_id, run_id=run_id)
+        )
+    )
+
+
+@artifacts_router.post(
+    "/{connection_id}/runs/{run_id}/artifacts",
+    response_model=ApiResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_provider_artifact(
+    connection_id: str,
+    run_id: str,
+    kind: Annotated[ArtifactKind, Form()],
+    file: Annotated[UploadFile, File()],
+    principal: CurrentPrincipal,
+    service: ProviderArtifacts,
+) -> ApiResponse:
+    artifact = await service.create(
+        connection_id=connection_id,
+        run_id=run_id,
+        kind=kind,
+        upload=file,
+        principal=principal,
+    )
+    return ApiResponse(data=_data(artifact))
+
+
+@artifacts_router.get(
+    "/{connection_id}/runs/{run_id}/artifacts/{artifact_id}/content"
+)
+async def get_provider_artifact_content(
+    connection_id: str,
+    run_id: str,
+    artifact_id: str,
+    _: CurrentPrincipal,
+    service: ProviderArtifacts,
+) -> StreamingResponse:
+    artifact, content = await service.content(
+        connection_id=connection_id,
+        run_id=run_id,
+        artifact_id=artifact_id,
+    )
+    encoded_filename = quote(artifact.original_filename)
+    disposition = (
+        f"attachment; filename*=utf-8''{encoded_filename}"
+        if encoded_filename != artifact.original_filename
+        else f'attachment; filename="{artifact.original_filename}"'
+    )
+    return StreamingResponse(
+        content,
+        media_type=artifact.media_type or "application/octet-stream",
+        background=BackgroundTask(content.aclose),
+        headers={
+            "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": "sandbox; default-src 'none'",
+            "Content-Disposition": disposition,
+            "Content-Length": str(content.size_bytes),
+            "X-Artifact-SHA256": artifact.sha256 or "",
+        },
+    )
+
+
+@artifacts_router.delete(
+    "/{connection_id}/runs/{run_id}/artifacts/{artifact_id}",
+    response_model=ApiResponse,
+)
+async def delete_provider_artifact(
+    connection_id: str,
+    run_id: str,
+    artifact_id: str,
+    principal: CurrentPrincipal,
+    service: ProviderArtifacts,
+) -> ApiResponse:
+    artifact = await service.delete(
+        connection_id=connection_id,
+        run_id=run_id,
+        artifact_id=artifact_id,
+        principal=principal,
+    )
+    return ApiResponse(data=_data(artifact))
+
+
 tasks_router = APIRouter(
     prefix="/automation/tasks",
     tags=["automation-tasks"],
@@ -146,6 +367,13 @@ tasks_router = APIRouter(
 @tasks_router.get("", response_model=ApiResponse)
 async def list_tasks(service: RuntimeService) -> ApiResponse:
     return ApiResponse(data=_data(await service.list_tasks()))
+
+
+@tasks_router.get("/wakeup-outbox", response_model=ApiResponse)
+async def list_task_wakeup_outbox(service: RuntimeService) -> ApiResponse:
+    """Expose only safe delivery metadata; no task payload or lease digest."""
+
+    return ApiResponse(data=_data(await service.list_task_wakeup_outbox()))
 
 
 @tasks_router.post("", response_model=ApiResponse, status_code=status.HTTP_202_ACCEPTED)
@@ -371,6 +599,9 @@ async def list_schedule_fires(
 
 runtime_router = APIRouter()
 runtime_router.include_router(integrations_router)
+runtime_router.include_router(quality_gate_router)
+runtime_router.include_router(webhooks_router)
+runtime_router.include_router(artifacts_router)
 runtime_router.include_router(tasks_router)
 runtime_router.include_router(devices_router)
 runtime_router.include_router(schedules_router)

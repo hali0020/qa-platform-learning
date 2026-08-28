@@ -8,8 +8,14 @@ from app.pipeline.providers import (
     LearningCiPipelineProvider,
     OutboundPolicy,
     ProviderConfigurationError,
+    ProviderConflictError,
     ProviderResponseError,
+    ProviderSecurityError,
     ProviderTriggerRequest,
+)
+from app.pipeline.providers.models import (
+    ProviderGateDecisionRequest,
+    ProviderQualityGateStatus,
 )
 
 
@@ -53,6 +59,14 @@ async def test_learning_ci_uses_fixed_contract_and_normalizes_statuses() -> None
                     "web_url": None,
                     "message": "waiting for local approval",
                     "metadata": {"source": "learning"},
+                    "quality_gate": {
+                        "required": True,
+                        "status": "waiting_approval",
+                        "policy_revision": 1,
+                        "reached_at": "2026-08-27T00:00:00Z",
+                        "decided_at": None,
+                    },
+                    "approvals": [],
                     "replayed": False,
                 },
             )
@@ -105,6 +119,9 @@ async def test_learning_ci_uses_fixed_contract_and_normalizes_statuses() -> None
 
         assert created.status == PipelineStatus.QUEUED
         assert created.raw_status == "waiting_approval"
+        assert created.quality_gate.status == (
+            ProviderQualityGateStatus.WAITING_APPROVAL
+        )
         assert created.metadata == {
             "source": "learning",
             "definition_revision": 3,
@@ -157,6 +174,51 @@ async def test_learning_ci_rejects_unbound_or_non_idempotent_trigger() -> None:
         await provider.aclose()
 
 
+@pytest.mark.parametrize(
+    ("status_code", "expected_error"),
+    (
+        (301, ProviderConfigurationError),
+        (400, ProviderConfigurationError),
+        (401, ProviderSecurityError),
+        (403, ProviderSecurityError),
+        (404, ProviderConfigurationError),
+        (409, ProviderConflictError),
+        (422, ProviderConfigurationError),
+        (429, ProviderResponseError),
+        (503, ProviderResponseError),
+    ),
+)
+@pytest.mark.asyncio
+async def test_learning_ci_classifies_http_rejections(
+    status_code: int,
+    expected_error: type[Exception],
+) -> None:
+    async def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(status_code)
+
+    provider = LearningCiPipelineProvider(
+        base_url="http://127.0.0.1:23020",
+        definition_id="quality-gate",
+        bearer_token="fake-learning-token-0123456789abcdef",
+        policy=lab_policy(),
+        enabled=True,
+        resolver=loopback_resolver,
+        transport=httpx.MockTransport(handler),
+    )
+    try:
+        with pytest.raises(expected_error):
+            await provider.trigger(
+                ProviderTriggerRequest(
+                    definition_ref="quality-gate",
+                    ref="main",
+                    variables={"SUITE": "smoke"},
+                    correlation_id="qa-run-001",
+                )
+            )
+    finally:
+        await provider.aclose()
+
+
 @pytest.mark.asyncio
 async def test_learning_ci_rejects_unknown_status_and_mismatched_definition() -> None:
     responses = iter(
@@ -191,5 +253,80 @@ async def test_learning_ci_rejects_unknown_status_and_mismatched_definition() ->
             await provider.get("run_001")
         with pytest.raises(ProviderConfigurationError, match="definition"):
             await provider.get("run_001")
+    finally:
+        await provider.aclose()
+
+
+@pytest.mark.asyncio
+async def test_learning_ci_sends_bounded_gate_decision_and_normalizes_audit() -> None:
+    seen_body: dict[str, str] = {}
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal seen_body
+        assert request.method == "POST"
+        assert request.url.raw_path == b"/api/v1/runs/run_001/gate-decisions"
+        seen_body = json.loads(request.content)
+        return httpx.Response(
+            200,
+            json={
+                "id": "run_001",
+                "definition": "quality-gate",
+                "definition_revision": 1,
+                "status": "succeeded",
+                "message": "quality gate approved",
+                "metadata": {},
+                "quality_gate": {
+                    "required": True,
+                    "status": "approved",
+                    "policy_revision": 1,
+                    "reached_at": "2026-08-27T00:00:00.600000Z",
+                    "decided_at": "2026-08-27T00:00:01Z",
+                },
+                "approvals": [
+                    {
+                        "id": "approval-1",
+                        "event_id": "decision-001",
+                        "decision": "approve",
+                        "actor_id": "qa-lead-1",
+                        "actor_name": "QA Lead",
+                        "comment": "reviewed",
+                        "created_at": "2026-08-27T00:00:01Z",
+                    }
+                ],
+                "replayed": False,
+            },
+        )
+
+    provider = LearningCiPipelineProvider(
+        base_url="http://127.0.0.1:23020",
+        definition_id="quality-gate",
+        bearer_token="fake-learning-token-0123456789abcdef",
+        policy=lab_policy(),
+        enabled=True,
+        resolver=loopback_resolver,
+        transport=httpx.MockTransport(handler),
+    )
+    try:
+        run = await provider.decide_gate(
+            "run_001",
+            ProviderGateDecisionRequest(
+                event_id="decision-001",
+                decision="approve",
+                actor_id="qa-lead-1",
+                actor_name="QA Lead",
+                comment="reviewed",
+            ),
+        )
+        assert seen_body == {
+            "event_id": "decision-001",
+            "decision": "approve",
+            "actor_id": "qa-lead-1",
+            "actor_name": "QA Lead",
+            "comment": "reviewed",
+        }
+        assert run.status == PipelineStatus.SUCCEEDED
+        assert run.quality_gate.status == ProviderQualityGateStatus.APPROVED
+        assert len(run.approvals) == 1
+        assert run.approvals[0].event_id == "decision-001"
     finally:
         await provider.aclose()

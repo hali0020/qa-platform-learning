@@ -73,6 +73,10 @@ def test_runtime_migration_matches_metadata_and_has_no_secret_column(
     assert {
         "provider_connections",
         "provider_runs",
+        "provider_run_approvals",
+        "provider_run_artifacts",
+        "provider_webhook_events",
+        "provider_trigger_intents",
         "automation_tasks",
         "devices",
         "device_leases",
@@ -83,7 +87,7 @@ def test_runtime_migration_matches_metadata_and_has_no_secret_column(
     assert "secret" not in columns
     assert "token" not in columns
     assert device_lease_indexes["uq_device_leases_one_active_per_device"] is True
-    assert revision == ("20260827_0009",)
+    assert revision == ("20260828_0011",)
 
 
 @pytest.mark.asyncio
@@ -105,6 +109,10 @@ async def test_local_provider_runs_are_durable_and_never_need_a_secret(
         connection.id,
         ProviderTriggerPayload(correlation_id="lesson-1", variables={"SUITE": "smoke"}),
     )
+    dispatched = await first.dispatch_provider_trigger_once("local-test-dispatcher")
+    assert dispatched is not None
+    assert dispatched.id == run.id
+    assert dispatched.dispatch_status == "dispatched"
     replay = await first.trigger_provider(
         connection.id,
         ProviderTriggerPayload(correlation_id="lesson-1", variables={"SUITE": "smoke"}),

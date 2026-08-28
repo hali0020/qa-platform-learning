@@ -43,12 +43,15 @@ Copy-Item .env.example .env
 COMPOSE_PROVIDER_RUNTIME_MODE=local_lab
 COMPOSE_PROVIDER_SECRET_ENV_ALLOWLIST=
 QA_PROVIDER_SECRET_CI_LAB=
+QA_PROVIDER_SECRET_CI_LAB_WEBHOOK=
 ```
 
-推荐由启动脚本为每次本机实验生成 256 bit 随机 Token。Token 只在脚本的进程
+推荐由启动脚本为每次本机实验生成两个相互独立的 256 bit 随机 Secret：出站
+Bearer Token 与入站 Webhook HMAC key。它们只在脚本的进程
 环境中短暂存在：CI Lab 得到只读
 `/run/secrets/ci_lab_machine_token`，backend 因当前 Secret Store 启动边界限制，
-通过严格白名单的 `QA_PROVIDER_SECRET_CI_LAB` 环境变量得到同一个值。
+通过严格白名单的 `QA_PROVIDER_SECRET_CI_LAB` 环境变量得到同一个值；Webhook key
+使用 `QA_PROVIDER_SECRET_CI_LAB_WEBHOOK`，不得与 Bearer Token 复用。
 
 因此 backend 的容器 metadata 仍可能包含这个教学 Token。不要运行会展开环境值的
 `docker compose config`，也不要提交 `.env`、粘贴 `docker inspect`、截图或复用该
@@ -68,11 +71,12 @@ Token。后续可把 backend 一侧也改成运行时 Secret 文件/Vault 引导
 脚本会完成以下动作：
 
 1. 确认 `.env`、Docker 和 CI Lab 源码存在；
-2. 在内存中生成不输出的随机机器 Token；
+2. 在内存中生成不输出、相互独立的随机机器 Token 与 Webhook Secret；
 3. 仅对本次 Compose 调用设置 `ci_lab_local` 和精确 Secret 名；
 4. 使用 `config --quiet` 做静态配置检查；
-5. 构建并重建 `ci-lab`、`backend` 和 `frontend`，使本轮随机 Token 在两个消费端
-   保持一致；命名卷数据不会因重建容器而删除；
+5. 构建并重建 `ci-lab`、`backend` 和 `frontend`，使本轮机器 Token 在两个消费端
+   保持一致，并把独立 Webhook Secret 只交给 QA 接收端；命名卷数据不会因重建容器
+   而删除；
 6. 恢复调用者原来的进程环境变量。
 
 首次构建会从公开 Python/Docker 软件源下载项目声明的依赖和基础镜像。运行后的
@@ -103,6 +107,7 @@ Python 契约的静态验证，**没有声称镜像已经构建或容器已经�
 | Base URL | 留空；地址由服务端固定 |
 | Config | 空对象 |
 | Secret 引用 | `QA_PROVIDER_SECRET_CI_LAB` |
+| Webhook Secret 引用 | 需要练习接收时填写 `QA_PROVIDER_SECRET_CI_LAB_WEBHOOK` |
 | Enabled | 开启 |
 
 连接表只保存 Secret 的变量名，不保存 Token。`base_url` 也必须为空；试图改成任意
@@ -119,14 +124,15 @@ GET  /api/v1/definitions
 POST /api/v1/definitions/{definition}/runs
 GET  /api/v1/runs/{run_id}
 POST /api/v1/runs/{run_id}/cancel
+POST /api/v1/runs/{run_id}/gate-decisions
 ```
 
 没有“任意 URL 请求”“执行 Shell”“动态 import”“公司项目发现”或凭据回显接口。
 Lab 也不启动后台 Executor：运行依据持久化的 `created_at` 与源码中固定的定义时间线，
-在查询、幂等重放或取消时确定性物化为 `queued → running → succeeded/failed`。因此
-重启后可以恢复，同一运行不会因时钟回拨退回旧状态。内置定义只有成功的
-`local-quality-gate` 和确定失败的 `local-failure-demo`，没有改变状态的隐藏教学
-控制端点。
+在查询、幂等重放或取消时确定性物化。`local-quality-gate` 在固定测试步骤后进入
+`waiting_approval`，由显式机器 gate-decision 接口批准后成功或拒绝后失败；
+`local-failure-demo` 确定失败。状态与审批持久化，因此重启后可以恢复，同一运行不会
+因时钟回拨退回旧状态，也没有绕过门禁的隐藏教学控制端点。
 
 ## 4. 建议练习
 
@@ -136,14 +142,18 @@ Lab 也不启动后台 Executor：运行依据持久化的 `created_at` 与源�
    `local_lab`。
 2. 使用脚本启动，确认只有 `127.0.0.1:23020` 暴露 Lab，容器目标固定为
    `172.30.60.2:8080`。
-3. 创建 `learning_ci` 连接，触发一次带唯一 correlation ID 的运行。
+3. 创建 `learning_ci` 连接，触发一次带唯一 correlation ID 的运行；先观察 QA 只写
+   Run/Intent。这个脚本的 SQLite 教学拓扑使用页面/API 手工 dispatch；只有另行启用
+   PostgreSQL `provider-dispatcher` profile 时才由独立进程自动 claim 并执行 HTTP。
 4. 重复相同触发，观察幂等 replay；修改参数后复用相同 ID，观察冲突。
 5. 查询运行，再取消一个尚未结束的运行，确认终态不会被反向覆盖。
-6. 分别触发 `local-quality-gate` 和 `local-failure-demo`，比较成功、失败及下游
-   任务取消的固定状态轨迹。
-7. 重启 CI Lab，确认独立 `ci-lab-data` 卷中的运行历史仍能读取。
-8. 停止 CI Lab 后触发或查询，观察有界超时和脱敏错误；恢复服务后重试。
-9. 把 runtime mode 改回 `local_lab`，确认即使容器仍在运行，backend 也拒绝网络
+6. 分别触发 `local-quality-gate` 和 `local-failure-demo`；前者应停在
+   `waiting_approval`，验证触发人不能自批、第二人可幂等批准/拒绝，Webhook 不能绕过。
+7. 上传 JSON/JUnit XML 测试报告或 Artifact，观察 pending、摘要、补偿和审计；用
+   测试客户端练习独立签名 Webhook 的 duplicate/stale/gap/终态回退。
+8. 重启 CI Lab，确认独立 `ci-lab-data` 卷中的运行历史仍能读取。
+9. 停止 CI Lab 后触发或查询，观察有界超时和脱敏错误；恢复服务后重试。
+10. 把 runtime mode 改回 `local_lab`，确认即使容器仍在运行，backend 也拒绝网络
    Provider 操作。
 
 数据库持久化、HTTP 幂等和运行状态是三个不同层次：数据库保存运行不代表消息
@@ -166,10 +176,13 @@ Lab 时，应先核对完整 Compose project 和卷名、导出仍需保留的�
 ## 6. 还没有完成什么
 
 - 没有真实 Jenkins、GitLab、蓝盾或公司环境联调；
-- 没有真正的源码拉取、构建 Executor、Artifact 上传或部署；
-- 没有 TLS、镜像签名、SBOM、漏洞扫描、审批人身份或不可篡改审计；
+- CI Lab 没有主动 webhook delivery Worker；当前只验证 QA 端独立签名接收；
+- 没有真正的源码拉取、构建 Executor 或部署；QA 平台已有 Run Artifact，但不是
+  完整制品仓库/构建产物发布系统；
+- 没有 TLS、镜像签名、SBOM、漏洞扫描或不可篡改审计；
 - 没有多实例 CI Lab、数据库复制、备份恢复验收或跨宿主机高可用；
-- 没有在当前机器执行 Docker 构建、网络隔离、重启和故障注入验证。
+- 没有在当前机器执行 Docker 构建、真实 PostgreSQL/RabbitMQ、网络隔离、多实例、
+  重启和故障注入验证；Web 保持单实例，不宣称 HA。
 
 这些限制不妨碍学习可迁移的核心：固定出站边界、异步 HTTP、Bearer 机器身份、
 幂等触发、状态归一化、取消、持久化和故障恢复。

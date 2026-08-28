@@ -13,6 +13,7 @@ import hmac
 import re
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Protocol, runtime_checkable
 from uuid import UUID
 
@@ -24,6 +25,13 @@ from app.core.errors import BusinessValidationError, DomainError
 _STORAGE_KEY = re.compile(r"^[0-9a-f]{2}/[0-9a-f]{32}$")
 _QUARANTINE_KEY = re.compile(r"^\.trash/[0-9a-f]{32}$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
+
+
+class AttachmentValidationProfile(str, Enum):
+    """Select the bounded content contract applied before persistence."""
+
+    GENERIC = "generic"
+    TEST_REPORT = "test_report"
 
 
 class AttachmentStorageUnavailableError(DomainError):
@@ -158,7 +166,15 @@ class AttachmentStorage(Protocol):
     @property
     def namespace(self) -> str: ...
 
-    async def save(self, upload: UploadFile, attachment_id: UUID) -> StoredUpload: ...
+    async def save(
+        self,
+        upload: UploadFile,
+        attachment_id: UUID,
+        *,
+        validation_profile: AttachmentValidationProfile = (
+            AttachmentValidationProfile.GENERIC
+        ),
+    ) -> StoredUpload: ...
 
     async def open(
         self,
@@ -206,6 +222,7 @@ __all__ = [
     "AttachmentStorage",
     "AttachmentStorageIntegrityError",
     "AttachmentStorageUnavailableError",
+    "AttachmentValidationProfile",
     "QuarantineReceipt",
     "StoredContent",
     "StoredUpload",

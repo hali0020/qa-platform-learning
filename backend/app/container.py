@@ -49,6 +49,8 @@ from app.services.identity import IdentityService
 from app.services.local_attachment_storage import LocalAttachmentStorage
 from app.services.data_transfer import DataTransferService
 from app.services.quality import QualityService
+from app.runtime.artifacts import ProviderRunArtifactService
+from app.runtime.repository import RuntimeRepository
 
 
 @dataclass(slots=True)
@@ -67,6 +69,7 @@ class ApplicationContainer:
     oidc: OidcService | None = None
     comments: CommentService | None = None
     attachments: AttachmentService | None = None
+    provider_artifacts: ProviderRunArtifactService | None = None
     attachment_storages: tuple[AttachmentStorage, ...] = field(
         default_factory=tuple,
         repr=False,
@@ -204,6 +207,7 @@ def build_container(
     oidc_service: OidcService | None = None
     comment_service: CommentService | None = None
     attachment_service: AttachmentService | None = None
+    provider_artifact_service: ProviderRunArtifactService | None = None
     attachment_storages: tuple[AttachmentStorage, ...] = ()
     if database is not None and settings is not None:
         identity_repository = IdentityRepository(database)
@@ -281,6 +285,13 @@ def build_container(
             audit_service,
             business_lock,
         )
+        provider_artifact_service = ProviderRunArtifactService(
+            RuntimeRepository(database),
+            storage_registry,
+            write_backend,
+            audit_service,
+            business_lock,
+        )
 
     return ApplicationContainer(
         projects=project_service,
@@ -297,6 +308,7 @@ def build_container(
         oidc=oidc_service,
         comments=comment_service,
         attachments=attachment_service,
+        provider_artifacts=provider_artifact_service,
         attachment_storages=attachment_storages,
         database=database,
     )

@@ -38,7 +38,18 @@ pytest / compile                TypeScript 类型检查
 
 Provider 连接只保存供应商类型、已绑定的定义标识、非敏感配置和 Secret 环境变量名称；不会把 Token 值保存到所选关系数据库。默认 `local_lab` 会硬拒绝所有网络 Provider。单独的 `ci_lab_local` 只能启用 `learning_ci`，其地址不能入库或由页面配置：源码固定 `127.0.0.1:23020`，容器固定 `172.30.60.2:8080/32`，Secret 名固定 `QA_PROVIDER_SECRET_CI_LAB`。`self_hosted_lab` 才用于我们自己安装的 Jenkins/GitLab/BK-CI，并继续要求所有权确认、精确 host/port/CIDR/Secret allowlist、HTTPS、DNS 结果校验、禁重定向、超时和响应大小限制。三个模式互斥，没有 external/public 模式。
 
-Learning CI 的运行事实位于独立 `ci-lab.db`，QA 数据库只保存连接和归一化 Run 映射。触发把稳定 correlation ID 转为 `Idempotency-Key`；相同键/相同输入重放得到同一个 Run，相同键/不同输入冲突。状态依据固定 Definition 的时间线从 `queued` 物化到 `running` 和终态，因此停止/重启进程后仍可继续读取。它不拉代码、不执行 Shell，也不是构建 Executor。
+Learning CI 的运行事实位于独立 `ci-lab.db`，QA 数据库保存连接、归一化 Run、
+Trigger Intent、审批、Artifact 元数据和 Webhook 收据。Web 触发只提交 Run/Intent；
+独立 Dispatcher claim 后在数据库事务外调用 CI，并把稳定 correlation ID 转为
+`Idempotency-Key`。相同键/相同输入重放得到同一个 Run，相同键/不同输入冲突。
+状态依据固定 Definition 的时间线物化；`local-quality-gate` 会持久等待 QA 的非触发
+人审批，不能由前端或成功 Webhook 绕过。它不拉代码、不执行 Shell，也不是构建
+Executor。
+
+Run Artifact 复用 Storage Port，显式记录 `pending/ready/failed/deleted`、大小、
+SHA-256、补偿和审计。独立机器 Webhook 接收端使用专用 HMAC Secret、五分钟时间窗、
+事件唯一键与 sequence reducer，处理重放、乱序、缺口和终态回退；CI Lab 目前没有
+主动 delivery Worker，所以当前只验证接收与轮询对账。
 
 流水线模拟器的 checkpoint 与 QA 数据复用异步 SQLAlchemy 和 Alembic。默认落到 SQLite；可选 PostgreSQL 只允许 `postgres_local_container + APP_ENV=local-container + postgresql+asyncpg@postgres:5432` 的内部网络。一次 checkpoint 的运行、触发幂等键和回调事件在同一数据库事务提交，readiness 也支持这两种受约束的 backend。
 
@@ -60,16 +71,26 @@ BK-CI 不同版本的网关前缀、认证方式、项目/流水线标识可能�
 
 1. 在 Local Provider 中理解统一状态机，确认它完全不访问网络。
 2. 显式启动 Learning CI，用两个本机进程练习 Bearer、异步 trigger/get/cancel、幂等冲突、超时、停机和恢复。
-3. 在 Learning CI 上实现签名 Webhook、轮询对账、审批、质量门禁和 Artifact，不先绑定供应商语法。
-4. 用 Mock HTTP 为 Jenkins/GitLab/BK-CI 维护契约测试，不发真实产品请求。
-5. 学习 Jenkinsfile、`.gitlab-ci.yml` 和 BK-CI 流水线变量，但不把供应商语法塞入 QA 领域服务。
-6. 自己安装一个产品的测试实例和测试账号后，一次只联调一个 Provider，并以实际版本官方契约为准。
-7. 最后练习发布审批、环境差异、回滚、审计和生产交付门槛。
+3. 在 Learning CI 上练习已经实现的签名 Webhook 接收/轮询对账、审批、质量门禁、
+   Trigger Intent 和 Artifact，不先绑定供应商语法。
+4. 观察 migration Job、Provider Dispatcher、Scheduler、task wake-up outbox/
+   Dispatcher 的短事务边界；RabbitMQ 只作无内容唤醒，Web 不持有 Broker。
+5. 用 Mock HTTP 为 Jenkins/GitLab/BK-CI 维护契约测试，不发真实产品请求。
+6. 学习 Jenkinsfile、`.gitlab-ci.yml` 和 BK-CI 流水线变量，但不把供应商语法塞入 QA 领域服务。
+7. 自己安装一个产品的测试实例和测试账号后，一次只联调一个 Provider，并以实际版本官方契约为准。
+8. 最后练习发布审批、环境差异、回滚、审计和生产交付门槛。
 
 ## CD 与生产差距
 
-当前 Compose 只提供本机容器演示，不执行自动部署。PostgreSQL 与 `ci-lab` profile 已接线，但当前机器没有 Docker，因此尚未做真实容器迁移、固定 IP socket、流水线恢复和 readiness 验证；现有检查属于安全边界、方言、ASGI 契约和静态配置验证。
+当前 Compose 只提供本机容器演示，不执行自动部署。一次性 migration Job、
+verify-only Web/Worker/Scheduler/Dispatcher、PostgreSQL、RabbitMQ 与 `ci-lab` profile
+已接线；Web 不持有 Broker。当前机器没有 Docker，因此尚未做真实容器迁移、固定
+IP socket、多进程竞争、流水线恢复和 readiness 验证；现有检查属于安全边界、
+方言、ASGI 契约和静态/自动化验证。
 
-正式 CD 仍需要环境分层、Secret Manager、独立迁移 Job、镜像签名与扫描、部署审批、滚动/蓝绿/灰度、健康门禁、数据库兼容迁移和一键回滚。当前也没有 SQLite→PostgreSQL 数据搬迁、多实例并发验证或迁移领导者机制。
+正式 CD 仍需要环境分层、Secret Manager 启动注入、镜像签名与扫描、部署审批、
+滚动/蓝绿/灰度、健康门禁、数据库兼容迁移和一键回滚。当前也没有
+SQLite→PostgreSQL 数据搬迁、真实多实例/故障注入、备份恢复或 HA 验收；Web 保持
+单实例。真实 Jenkins/GitLab/BK-CI 和公司系统仍关闭。
 
 不要让“Pipeline 成功”成为唯一发布依据；还应结合测试质量、变更风险、监控信号和人工审批。

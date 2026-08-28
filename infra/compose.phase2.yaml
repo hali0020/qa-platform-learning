@@ -5,7 +5,7 @@ services:
     # Optional phase-2 database runtime; activate it explicitly with the
     # postgres profile and matching COMPOSE_DATABASE_* values in local .env.
     image: postgres:17.11-alpine3.23
-    profiles: ["postgres", "worker"]
+    profiles: ["postgres", "worker", "scheduler", "outbox", "provider-dispatcher"]
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-qa_platform_learning}
       POSTGRES_USER: ${POSTGRES_USER:-qa_platform_learning}
@@ -358,6 +358,47 @@ services:
       ci-lab:
         ipv4_address: 172.30.60.2
 
+  migration:
+    # The only schema-changing process in Compose. Web, Worker and Scheduler
+    # start in verify-only mode after this one-shot Job exits successfully.
+    build:
+      context: ..
+      dockerfile: infra/docker/backend.Dockerfile
+    command: ["python", "-m", "app.migrations.main"]
+    environment:
+      APP_ENV: local-container
+      DEBUG: "false"
+      LOCAL_ONLY: "true"
+      DATABASE_RUNTIME_MODE: ${COMPOSE_DATABASE_RUNTIME_MODE:?copy .env.example to .env}
+      DATABASE_URL: ${COMPOSE_DATABASE_URL:?copy .env.example to .env}
+      DATABASE_SCHEMA_MODE: upgrade
+      LOCAL_DATA_ROOT: /data
+      BROKER_RUNTIME_MODE: disabled_local
+      BROKER_URL: ""
+      OBJECT_STORAGE_RUNTIME_MODE: local_filesystem
+      AUTH_RUNTIME_MODE: local_accounts
+      SECRET_STORE_RUNTIME_MODE: env_local
+      PROVIDER_RUNTIME_MODE: local_lab
+      PROVIDER_SELF_HOSTED_OWNERSHIP_ACKNOWLEDGED: "false"
+      AWS_EC2_METADATA_DISABLED: "true"
+      QA_PLATFORM_SKIP_LOCAL_ENV: "1"
+    depends_on:
+      postgres:
+        condition: service_healthy
+        required: false
+    volumes:
+      - qa-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: "no"
+    networks:
+      - default
+
   backend:
     build:
       context: ..
@@ -375,8 +416,11 @@ services:
       # checked-in example selects SQLite; PostgreSQL is always explicit.
       DATABASE_RUNTIME_MODE: ${COMPOSE_DATABASE_RUNTIME_MODE:?copy .env.example to .env}
       DATABASE_URL: ${COMPOSE_DATABASE_URL:?copy .env.example to .env}
-      BROKER_RUNTIME_MODE: ${COMPOSE_BROKER_RUNTIME_MODE:-disabled_local}
-      BROKER_URL: ${COMPOSE_BROKER_URL:-}
+      DATABASE_SCHEMA_MODE: verify
+      # Web writes the transactional outbox only. Broker credentials belong
+      # exclusively to Worker and the outbox dispatcher.
+      BROKER_RUNTIME_MODE: disabled_local
+      BROKER_URL: ""
       OBJECT_STORAGE_RUNTIME_MODE: ${COMPOSE_OBJECT_STORAGE_RUNTIME_MODE:-local_filesystem}
       OBJECT_STORAGE_ENDPOINT_URL: ${COMPOSE_OBJECT_STORAGE_ENDPOINT_URL:-}
       OBJECT_STORAGE_BUCKET: ${COMPOSE_OBJECT_STORAGE_BUCKET:-}
@@ -422,7 +466,11 @@ services:
       # limitation. The CI Lab itself receives the same value as a read-only
       # Compose secret file and neither process may print it.
       QA_PROVIDER_SECRET_CI_LAB: ${QA_PROVIDER_SECRET_CI_LAB:-}
+      # Independent inbound signing key; never reuse the outbound Bearer token.
+      QA_PROVIDER_SECRET_CI_LAB_WEBHOOK: ${QA_PROVIDER_SECRET_CI_LAB_WEBHOOK:-}
     depends_on:
+      migration:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
         required: false
@@ -473,7 +521,7 @@ services:
 
   rabbitmq:
     image: rabbitmq:4.3.5-management-alpine
-    profiles: ["worker"]
+    profiles: ["worker", "outbox"]
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-qa_platform_learning}
       # The official image no longer supports *_FILE for these bootstrap
@@ -508,10 +556,12 @@ services:
       LOCAL_ONLY: "true"
       DATABASE_RUNTIME_MODE: postgres_local_container
       DATABASE_URL: ${COMPOSE_DATABASE_URL:?worker profile requires PostgreSQL URL in .env}
+      DATABASE_SCHEMA_MODE: verify
       LOCAL_DATA_ROOT: /data
       BROKER_RUNTIME_MODE: rabbitmq_local_container
-      BROKER_URL: >-
-        amqp://${RABBITMQ_DEFAULT_USER:-qa_platform_learning}:${RABBITMQ_DEFAULT_PASS:-}@rabbitmq:5672/qa_platform_learning
+      # Keep the complete, URL-encoded client URL in the ignored .env. Raw
+      # RabbitMQ passwords cannot be safely interpolated into an AMQP URL.
+      BROKER_URL: ${COMPOSE_BROKER_URL:-}
       PROVIDER_RUNTIME_MODE: local_lab
       PROVIDER_SELF_HOSTED_OWNERSHIP_ACKNOWLEDGED: "false"
       WORKER_QUEUES: ${WORKER_QUEUES:-default}
@@ -520,11 +570,11 @@ services:
       WORKER_POLL_SECONDS: ${WORKER_POLL_SECONDS:-5}
       WORKER_SHUTDOWN_GRACE_SECONDS: ${WORKER_SHUTDOWN_GRACE_SECONDS:-30}
     depends_on:
+      migration:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       rabbitmq:
-        condition: service_healthy
-      backend:
         condition: service_healthy
     volumes:
       - qa-data:/data
@@ -537,6 +587,149 @@ services:
       - no-new-privileges:true
     stop_grace_period: 40s
     restart: unless-stopped
+
+  outbox-dispatcher:
+    build:
+      context: ..
+      dockerfile: infra/docker/backend.Dockerfile
+    profiles: ["worker", "outbox"]
+    command: ["python", "-m", "app.outbox.main"]
+    environment:
+      APP_ENV: local-container
+      DEBUG: "false"
+      LOCAL_ONLY: "true"
+      DATABASE_RUNTIME_MODE: postgres_local_container
+      DATABASE_URL: ${COMPOSE_DATABASE_URL:?outbox profile requires PostgreSQL URL in .env}
+      DATABASE_SCHEMA_MODE: verify
+      LOCAL_DATA_ROOT: /tmp/qa-outbox
+      BROKER_RUNTIME_MODE: rabbitmq_local_container
+      # Worker and dispatcher share the same project-owned encoded URL, but
+      # only these broker-facing processes receive it.
+      BROKER_URL: ${COMPOSE_BROKER_URL:-}
+      OBJECT_STORAGE_RUNTIME_MODE: local_filesystem
+      AUTH_RUNTIME_MODE: local_accounts
+      SECRET_STORE_RUNTIME_MODE: env_local
+      PROVIDER_RUNTIME_MODE: local_lab
+      PROVIDER_SELF_HOSTED_OWNERSHIP_ACKNOWLEDGED: "false"
+      OUTBOX_DISPATCHER_ID: ${OUTBOX_DISPATCHER_ID:-}
+      OUTBOX_LEASE_SECONDS: ${OUTBOX_LEASE_SECONDS:-30}
+      OUTBOX_POLL_SECONDS: ${OUTBOX_POLL_SECONDS:-2}
+      AWS_EC2_METADATA_DISABLED: "true"
+      QA_PLATFORM_SKIP_LOCAL_ENV: "1"
+    depends_on:
+      migration:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 30s
+    restart: unless-stopped
+    networks:
+      - default
+
+  provider-dispatcher:
+    build:
+      context: ..
+      dockerfile: infra/docker/backend.Dockerfile
+    profiles: ["worker", "provider-dispatcher"]
+    command: ["python", "-m", "app.dispatcher.main"]
+    environment:
+      APP_ENV: local-container
+      DEBUG: "false"
+      LOCAL_ONLY: "true"
+      DATABASE_RUNTIME_MODE: postgres_local_container
+      DATABASE_URL: ${COMPOSE_DATABASE_URL:?provider dispatcher requires PostgreSQL URL in .env}
+      DATABASE_SCHEMA_MODE: verify
+      LOCAL_DATA_ROOT: /tmp/qa-provider-dispatcher
+      BROKER_RUNTIME_MODE: disabled_local
+      BROKER_URL: ""
+      OBJECT_STORAGE_RUNTIME_MODE: local_filesystem
+      AUTH_RUNTIME_MODE: local_accounts
+      SECRET_STORE_RUNTIME_MODE: env_local
+      PROVIDER_RUNTIME_MODE: ${COMPOSE_PROVIDER_RUNTIME_MODE:-local_lab}
+      PROVIDER_SELF_HOSTED_OWNERSHIP_ACKNOWLEDGED: "false"
+      PROVIDER_ALLOWED_HOSTS: ""
+      PROVIDER_ALLOWED_PORTS: "443"
+      PROVIDER_ALLOWED_NETWORKS: ""
+      PROVIDER_ALLOW_LOOPBACK_HTTP: "false"
+      PROVIDER_SECRET_ENV_ALLOWLIST: ${COMPOSE_PROVIDER_SECRET_ENV_ALLOWLIST:-}
+      QA_PROVIDER_SECRET_CI_LAB: ${QA_PROVIDER_SECRET_CI_LAB:-}
+      PROVIDER_DISPATCHER_ID: ${PROVIDER_DISPATCHER_ID:-}
+      PROVIDER_DISPATCHER_LEASE_SECONDS: ${PROVIDER_DISPATCHER_LEASE_SECONDS:-30}
+      PROVIDER_DISPATCHER_POLL_SECONDS: ${PROVIDER_DISPATCHER_POLL_SECONDS:-2}
+      AWS_EC2_METADATA_DISABLED: "true"
+      QA_PLATFORM_SKIP_LOCAL_ENV: "1"
+    depends_on:
+      migration:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      ci-lab:
+        condition: service_healthy
+        required: false
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 30s
+    restart: unless-stopped
+    networks:
+      - default
+      - ci-lab
+
+  scheduler:
+    build:
+      context: ..
+      dockerfile: infra/docker/backend.Dockerfile
+    profiles: ["worker", "scheduler"]
+    command: ["python", "-m", "app.scheduler.main"]
+    environment:
+      APP_ENV: local-container
+      DEBUG: "false"
+      LOCAL_ONLY: "true"
+      DATABASE_RUNTIME_MODE: postgres_local_container
+      DATABASE_URL: ${COMPOSE_DATABASE_URL:?scheduler profile requires PostgreSQL URL in .env}
+      DATABASE_SCHEMA_MODE: verify
+      LOCAL_DATA_ROOT: /tmp/qa-scheduler
+      BROKER_RUNTIME_MODE: disabled_local
+      BROKER_URL: ""
+      OBJECT_STORAGE_RUNTIME_MODE: local_filesystem
+      AUTH_RUNTIME_MODE: local_accounts
+      SECRET_STORE_RUNTIME_MODE: env_local
+      PROVIDER_RUNTIME_MODE: local_lab
+      PROVIDER_SELF_HOSTED_OWNERSHIP_ACKNOWLEDGED: "false"
+      SCHEDULER_ID: ${SCHEDULER_ID:-}
+      SCHEDULER_LEASE_SECONDS: ${SCHEDULER_LEASE_SECONDS:-30}
+      SCHEDULER_POLL_SECONDS: ${SCHEDULER_POLL_SECONDS:-5}
+      AWS_EC2_METADATA_DISABLED: "true"
+      QA_PLATFORM_SKIP_LOCAL_ENV: "1"
+    depends_on:
+      migration:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 30s
+    restart: unless-stopped
+    networks:
+      - default
 
   frontend:
     build:

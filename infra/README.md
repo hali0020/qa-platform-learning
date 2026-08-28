@@ -9,7 +9,11 @@
 - Keycloak：可选 `identity-secrets` profile 中的自建 OIDC/PKCE/TOTP realm，并由双层内部网络隔离 master/Admin/management 面
 - Vault：可选 `identity-secrets` profile 中的持久 sealed 单节点 Secret 教学服务，应用网关只放行两个只读 KV-v2 path
 - Learning CI：可选 `ci-lab` profile 中由本仓库实现的异步 CI HTTP 模拟服务，固定在独立 `172.30.60.0/28` 内部网络
+- migration Job：Compose 中唯一执行 Alembic upgrade 的一次性进程
 - Worker：数据库权威 claim、租约心跳和固定本机 Handler
+- Scheduler：PostgreSQL `SKIP LOCKED` claim、事务外 Cron 计算和 CAS finalize
+- Provider Dispatcher：claim 持久 Trigger Intent，在数据库事务外执行 CI HTTP
+- Outbox Dispatcher：发布 transactional outbox 中固定、无业务内容的 RabbitMQ 唤醒提示；Web 不持有 Broker
 - 本地流水线模拟器
 - 本地文件制品库
 - Docker Compose
@@ -32,3 +36,9 @@ secret；root token 与 unseal key 永远不挂载给应用。
 代码固定为专网中的单个 `/32` 地址，宿主机教学入口只发布到
 `127.0.0.1:23020`。启动、连接、幂等触发和故障练习见
 [DEPLOYMENT_PHASE6_CI_LAB.md](DEPLOYMENT_PHASE6_CI_LAB.md)。
+
+当前机器没有 Docker。上述 migration/进程入口、PostgreSQL SQL 形状、outbox 和状态机
+已有自动化验证，但真实 PostgreSQL/RabbitMQ、多 Worker/Scheduler/Dispatcher、重复
+消息、进程崩溃、Broker/数据库中断和备份恢复尚未实跑。Web 当前保持单实例，CI Lab
+也是单实例 SQLite；不宣称 HA。CI Lab 还没有主动 webhook delivery Worker，只验证
+QA 平台的独立签名接收链路。Jenkins/GitLab/BK-CI 和公司系统仍关闭。

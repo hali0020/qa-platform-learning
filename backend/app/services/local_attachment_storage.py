@@ -8,6 +8,7 @@ import os
 import unicodedata
 import warnings
 import zipfile
+import xml.etree.ElementTree as ElementTree
 from pathlib import Path
 from uuid import UUID
 
@@ -18,6 +19,7 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 from app.core.errors import BusinessValidationError, NotFoundError
 from app.services.attachment_storage import (
     AttachmentStorageIntegrityError,
+    AttachmentValidationProfile,
     QuarantineReceipt,
     StoredContent,
     StoredUpload,
@@ -43,6 +45,8 @@ _ALLOWED_EXTENSIONS = {
     "text/plain": {".txt", ".log", ".md"},
     "text/csv": {".csv"},
     "application/json": {".json"},
+    "application/xml": {".xml"},
+    "text/xml": {".xml"},
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
         ".xlsx"
     },
@@ -68,9 +72,24 @@ class LocalAttachmentStorage:
         self._max_bytes = max_bytes
         self._max_image_pixels = max_image_pixels
 
-    async def save(self, upload: UploadFile, attachment_id: UUID) -> StoredUpload:
+    async def save(
+        self,
+        upload: UploadFile,
+        attachment_id: UUID,
+        *,
+        validation_profile: AttachmentValidationProfile = (
+            AttachmentValidationProfile.GENERIC
+        ),
+    ) -> StoredUpload:
         filename = self.validate_filename(upload.filename or "")
         declared_type = (upload.content_type or "").split(";", maxsplit=1)[0].lower()
+        if (
+            validation_profile == AttachmentValidationProfile.TEST_REPORT
+            and declared_type not in {"application/json", "application/xml", "text/xml"}
+        ):
+            raise BusinessValidationError(
+                "测试报告只允许 UTF-8 JSON 或 JUnit XML"
+            )
         self._require_declared_type_and_extension(filename, declared_type)
         await self._ensure_directories()
         temp_path = self._root / ".tmp" / f"{attachment_id.hex}.part"
@@ -95,6 +114,7 @@ class LocalAttachmentStorage:
                 safe_temp_path,
                 declared_type,
                 filename,
+                validation_profile,
             )
             normalized_size = safe_temp_path.stat().st_size
             if normalized_size > self._max_bytes:
@@ -251,6 +271,7 @@ class LocalAttachmentStorage:
         path: Path,
         declared_type: str,
         filename: str,
+        validation_profile: AttachmentValidationProfile,
     ) -> tuple[str, bool]:
         if declared_type.startswith("image/"):
             actual_type = self._normalize_image(path)
@@ -274,7 +295,29 @@ class LocalAttachmentStorage:
                 json.loads(text)
             except json.JSONDecodeError as exc:
                 raise BusinessValidationError("JSON 附件内容无效") from exc
+        if declared_type in {"application/xml", "text/xml"}:
+            self._validate_xml(
+                data,
+                require_junit=(
+                    validation_profile == AttachmentValidationProfile.TEST_REPORT
+                ),
+            )
         return declared_type, False
+
+    @staticmethod
+    def _validate_xml(data: bytes, *, require_junit: bool) -> None:
+        folded = data.upper()
+        if b"<!DOCTYPE" in folded or b"<!ENTITY" in folded:
+            raise BusinessValidationError("XML 不能包含 DTD 或实体声明")
+        try:
+            root = ElementTree.fromstring(data)
+        except ElementTree.ParseError as exc:
+            raise BusinessValidationError("XML 内容无效") from exc
+        tag = root.tag.rsplit("}", maxsplit=1)[-1].casefold()
+        if require_junit and tag not in {"testsuite", "testsuites"}:
+            raise BusinessValidationError("XML 测试报告必须是 JUnit testsuite(s)")
+        if sum(1 for _ in root.iter()) > 100_000:
+            raise BusinessValidationError("XML 节点数量过多")
 
     def _normalize_image(self, path: Path) -> str:
         normalized_path = path.with_suffix(".normalized")

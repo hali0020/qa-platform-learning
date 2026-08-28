@@ -89,7 +89,27 @@ async def test_runtime_routes_work_together_and_survive_app_restart(
                 },
             )
             assert triggered.status_code == 202, triggered.text
-            assert triggered.json()["data"]["status"] == "queued"
+            pending_run = triggered.json()["data"]
+            assert pending_run["status"] == "queued"
+            assert pending_run["dispatch_status"] == "pending"
+            assert pending_run["external_id"] is None
+
+            intents = await client.get(
+                "/api/v1/integrations/connections/trigger-intents/all"
+            )
+            assert intents.status_code == 200, intents.text
+            assert len(intents.json()["data"]) == 1
+            assert intents.json()["data"][0]["status"] == "pending"
+
+            dispatched = await client.post(
+                "/api/v1/integrations/connections/trigger-intents/dispatch-one",
+                json={"worker_id": "api-dispatcher", "lease_seconds": 30},
+            )
+            assert dispatched.status_code == 200, dispatched.text
+            dispatched_run = dispatched.json()["data"]
+            assert dispatched_run["id"] == pending_run["id"]
+            assert dispatched_run["dispatch_status"] == "dispatched"
+            assert dispatched_run["external_id"] is not None
 
             enqueued = await client.post(
                 "/api/v1/automation/tasks",

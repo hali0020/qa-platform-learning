@@ -679,6 +679,7 @@ export interface ProviderConnectionCreate {
   definition_ref: string;
   config: Record<string, string>;
   secret_env_var?: string | null;
+  webhook_secret_env_var?: string | null;
   enabled?: boolean;
 }
 
@@ -688,6 +689,7 @@ export interface ProviderConnectionPatch {
   definition_ref?: string;
   config?: Record<string, string>;
   secret_env_var?: string | null;
+  webhook_secret_env_var?: string | null;
   enabled?: boolean;
   version: number;
 }
@@ -701,6 +703,8 @@ export interface ProviderConnection {
   config: Record<string, string>;
   secret_env_var: string | null;
   secret_configured: boolean;
+  webhook_secret_env_var: string | null;
+  webhook_secret_configured: boolean;
   enabled: boolean;
   version: number;
   created_at: IsoDateTime;
@@ -716,15 +720,75 @@ export interface ProviderTriggerRequest {
 export interface ProviderRun {
   id: string;
   connection_id: string;
-  external_id: string;
+  external_id: string | null;
   status: string;
   raw_status: string;
   web_url: string | null;
   message: string | null;
   metadata: Record<string, unknown>;
   correlation_id: string | null;
+  dispatch_status: string;
+  quality_gate_status: string;
+  reconciliation_required: boolean;
+  last_provider_sequence: number;
+  triggered_by_name: string;
+  approvals: ProviderRunApproval[];
   created_at: IsoDateTime;
   updated_at: IsoDateTime;
+}
+
+export interface ProviderRunApproval {
+  id: string;
+  run_id: string;
+  event_id: string;
+  decision: "approve" | "reject";
+  actor_name: string;
+  comment: string;
+  created_at: IsoDateTime;
+}
+
+export interface ProviderGateDecisionRequest {
+  event_id: string;
+  decision: "approve" | "reject";
+  comment?: string;
+}
+
+export interface ProviderTriggerIntent {
+  id: string;
+  run_id: string;
+  connection_id: string;
+  status: string;
+  attempts: number;
+  max_attempts: number;
+  available_at: IsoDateTime;
+  lease_owner: string | null;
+  lease_expires_at: IsoDateTime | null;
+  last_error_code: string | null;
+  created_at: IsoDateTime;
+  updated_at: IsoDateTime;
+  completed_at: IsoDateTime | null;
+}
+
+export type ProviderArtifactKind = "test_report" | "artifact";
+export type ProviderArtifactStatus = "pending" | "ready" | "failed" | "deleted";
+
+export interface ProviderRunArtifact {
+  id: string;
+  run_id: string;
+  kind: ProviderArtifactKind;
+  status: ProviderArtifactStatus;
+  original_filename: string;
+  media_type: string | null;
+  size_bytes: number | null;
+  sha256: string | null;
+  error_code: string | null;
+  created_by_user_id: string | null;
+  created_by_name: string;
+  created_at: IsoDateTime;
+  updated_at: IsoDateTime;
+  ready_at: IsoDateTime | null;
+  failed_at: IsoDateTime | null;
+  deleted_at: IsoDateTime | null;
 }
 
 export interface ProviderTestResult {

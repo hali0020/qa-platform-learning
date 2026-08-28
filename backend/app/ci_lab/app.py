@@ -13,7 +13,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from app.ci_lab.database import CiLabDatabase
-from app.ci_lab.models import RunView, TriggerRunRequest
+from app.ci_lab.models import GateDecisionRequest, RunView, TriggerRunRequest
 from app.ci_lab.registry import DEFAULT_DEFINITION_REGISTRY, DefinitionRegistry
 from app.ci_lab.service import CiLabError, CiLabService, Clock, utc_now
 
@@ -245,6 +245,17 @@ def create_ci_lab_app(
     )
     async def cancel_run(run_id: UUID) -> RunView:
         return await service.cancel(run_id)
+
+    @application.post(
+        "/api/v1/runs/{run_id}/gate-decisions",
+        response_model=RunView,
+        dependencies=[Depends(require_machine)],
+    )
+    async def decide_run_gate(
+        payload: GateDecisionRequest,
+        run_id: UUID,
+    ) -> RunView:
+        return await service.decide_gate(run_id, payload)
 
     return application
 

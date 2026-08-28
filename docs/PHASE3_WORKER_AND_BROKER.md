@@ -9,15 +9,21 @@ RabbitMQ 消息固定为一个不含任务 ID、参数、凭据或命令的提�
 ```text
 API 提交事务
      │
-     ├── PostgreSQL 保存任务（唯一事实来源）
-     └── RabbitMQ 发布固定 wake-up hint
-                         │
-Worker 收到提示 ─────────┘
+     └── PostgreSQL 同事务保存任务 + wake-up outbox
+                                      │
+Outbox Dispatcher claim ──事务外发布固定 hint──> RabbitMQ
+                                                  │
+Worker 收到提示 ──────────────────────────────────┘
      │
      ├── 向 PostgreSQL claim
      ├── 没抢到：提示作废，继续等待
      └── 抢到：执行固定 Handler，并定期续租
 ```
+
+Web 不连接 RabbitMQ，也不做“事务提交后顺手 publish”。任务与 wake-up outbox 由
+一个数据库事务创建；独立 Outbox Dispatcher claim 记录、提交租约、在事务外发布，
+再以 owner/token/version CAS 结算 `published` 或 `retry_wait`。publish confirm 后、
+数据库结算前崩溃可能重复发送，但提示不含任务 ID、参数、凭据或命令。
 
 消息丢失不会永久丢任务，因为 Worker 每隔 `WORKER_POLL_SECONDS` 主动查询数据库。重复消息也不会重复授予执行权，因为 PostgreSQL claim 才是权威边界。RabbitMQ 首次连接失败时，同一个 Source 对象会在后台按有上限的指数退避重试，数据库轮询不会暂停；连接恢复后自动重新使用消息唤醒。这是 at-least-once 系统常用的“Broker 加速、数据库兜底”设计。
 
@@ -46,11 +52,12 @@ Handler 必须幂等。数据库租约能防止正常竞争，但不能证明外
 
 PostgreSQL 模式下，任务租约使用数据库 `clock_timestamp()` 作为统一时钟，避免不同 Worker 主机的系统时间偏差提前回收任务。设备抢占采用 `task → device → lease` 的固定加锁顺序，候选设备使用 `FOR UPDATE SKIP LOCKED`；数据库还有“每台设备最多一条 active lease”的部分唯一索引作为最后防线。SQLite 仍只是单进程教学模式，不能据此扩展多个 Worker。
 
-迁移 `20260827_0006` 如果发现历史数据里同一设备已有多条 active lease，会主动失败，要求先审计和修复冲突数据，不会静默删除租约历史。多实例 Scheduler 的 leader election 仍未实现，不能同时启动多个调度器副本。
+迁移 `20260827_0006` 如果发现历史数据里同一设备已有多条 active lease，会主动失败，要求先审计和修复冲突数据，不会静默删除租约历史。阶段六 C 的独立 Scheduler 使用 PostgreSQL `FOR UPDATE SKIP LOCKED`、数据库时钟、claim 租约和版本/token CAS；Cron 计算在事务外完成。SQLite 仍只有单进程教学语义。
 
 ## 4. 安全边界
 
 - Worker 启动时拒绝 SQLite、`disabled_local` Broker 和非容器环境；
+- Web 的 Broker 模式固定关闭；只有 Worker 和 Outbox Dispatcher 获得 RabbitMQ 配置；
 - RabbitMQ 消息体是固定常量，不承载业务 Payload；
 - RabbitMQ 和 PostgreSQL 都不映射宿主机端口；
 - Compose 网络为 `internal: true`，容器没有默认公网出口；
@@ -64,10 +71,14 @@ RabbitMQ 3.9 之后的官方镜像不支持 `RABBITMQ_DEFAULT_PASS_FILE`。当�
 
 当前开发机没有 Docker，所以只完成 Python 单元测试、配置静态检查和 Compose 文档，尚未实际启动 PostgreSQL、RabbitMQ 或多个 Worker。容器实跑时还需要验证：
 
-1. 多 Worker 并发 claim 只有一个获胜；
-2. RabbitMQ 停止时数据库轮询仍能继续；
-3. Worker 被强杀后租约到期并安全重试；
-4. 重复消息、断线重连和优雅退出；
-5. 数据库迁移只由一个部署 Job 执行，而非多个副本抢跑。
+1. migration Job 从空卷成功后，Web/Worker/Scheduler/Dispatcher 才通过 schema verify；
+2. 多 Worker/多 Scheduler/多 Outbox Dispatcher 并发 claim 只有一个获胜；
+3. RabbitMQ 停止时 outbox 进入 retry_wait，Worker 数据库轮询仍能继续；
+4. Worker/Dispatcher 被强杀后租约到期并安全重试；
+5. publish-confirm/结算崩溃窗产生的重复提示不重复授权；
+6. 数据库中断与恢复、断线重连和优雅退出。
+
+上述进程、claim/outbox 与 migration Job 已编码并有本机自动化测试，但当前机器没有
+Docker，真实 PostgreSQL/RabbitMQ、多实例竞争和故障注入仍未执行，不能宣称 HA。
 
 具体环境变量与启动命令见 [第三阶段部署说明](../infra/DEPLOYMENT_PHASE3.md)。

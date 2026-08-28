@@ -21,8 +21,8 @@
 | 2 | 数据交换 | CSV/XLSX 模板、预检、摘要确认、部分导入、导出 | 幂等业务键、异步批任务、原子 Unit of Work |
 | 3 | 协作 | 评论、回复、安全附件、图片重编码、作者权限和本机对象存储适配 | 病毒扫描、通知与外部缺陷同步 |
 | 4 | 质量 | 指标口径、日/周趋势、套件覆盖 | 版本基线、历史事实表、需求/代码覆盖与质量门禁 |
-| 5 | CI Provider | Local、独立 Learning CI Lab，以及 Jenkins/GitLab/BK-CI 的默认关闭适配 | 审批、质量门禁、Artifact、签名 Webhook 与自建产品沙箱联调 |
-| 6 | 自动化资源 | 持久任务、租约/心跳、设备、Cron/misfire/overlap | 独立 Worker/Scheduler、消息代理、CAS/outbox、Agent 身份 |
+| 5 | CI Provider | Local、独立 Learning CI Lab、触发 Intent、审批门禁、Run Artifact、签名 Webhook 接收，以及 Jenkins/GitLab/BK-CI 的默认关闭适配 | CI Lab 主动 Webhook 投递、真实容器故障验收与自建产品沙箱联调 |
+| 6 | 自动化资源 | 持久任务、租约/心跳、设备、Cron/misfire/overlap、独立 Worker/Scheduler、PG claim/CAS、任务唤醒 outbox | 真实 PostgreSQL/RabbitMQ 多实例与故障注入、Agent 身份 |
 | 7 | 交付运维 | Docker/Nginx/监控，可选 PostgreSQL、Vault 与内部网关边界 | 高可用、TLS、启动 Secret 注入、备份恢复与回滚 |
 
 详细练习见 [PHASE2_LEARNING_GUIDE.md](PHASE2_LEARNING_GUIDE.md)。
@@ -31,8 +31,8 @@
 
 1. 引入 Unit of Work，让业务写入、审计与 outbox 共享事务。
 2. 已加入受限的内部 PostgreSQL 运行模式和方言迁移测试；容器实跑与迁移演练待执行。
-3. 已拆出独立 Worker 进程骨架，并为任务/设备租约加入 PostgreSQL 行锁、统一数据库时钟和数据库唯一防线；Scheduler 与迁移 Job 仍待拆分。
-4. 已加入 RabbitMQ 固定唤醒提示、数据库轮询兜底与固定 Handler Registry；outbox 和真实并发故障演练待完成。
+3. 已拆出独立 Worker 与 Scheduler 进程；任务/设备租约使用 PostgreSQL 行锁、统一数据库时钟和数据库唯一防线，Scheduler 使用 claim/租约与版本 CAS。
+4. 已加入一次性 migration Job，以及与任务同事务写入的 wake-up outbox；独立 Dispatcher 只向 RabbitMQ 发布无业务内容的固定提示，Web 不持有 Broker。真实容器并发与故障演练待完成。
 5. 已加入默认关闭的本机 Keycloak OIDC/PKCE/TOTP、管理员显式 subject 绑定边界与双层网络；项目成员模型和资源级授权仍待深化。
 6. 在自有测试实例上完成一个 Provider 的最小权限真实联调。
 7. 对象存储已进入阶段四的本机隔离学习；备份恢复、容量测试和可回滚发布仍待完成。
@@ -45,7 +45,7 @@ Worker/Broker 的详细语义见 [PHASE3_WORKER_AND_BROKER.md](PHASE3_WORKER_AND
 2. 增加只允许 `APP_ENV=local-container`、精确 `seaweedfs:8333` 和固定 `qa-artifacts` Bucket 的 S3 运行模式。
 3. Compose 通过 `object-storage` profile 启动单节点 SeaweedFS；镜像固定精确版本和 manifest index digest，不使用 `latest`。
 4. 已练习有界暂存、5 MiB 顺序 multipart、取消 abort、异步流式下载、摘要校验、超时、连接池回收与重复删除语义；并行 part、断点续传与上传状态表留作容量深化。
-5. 明确数据库元数据和对象内容不能原子提交，后续通过 pending/outbox、补偿和孤儿回收收敛。
+5. 明确数据库元数据和对象内容不能原子提交；Provider Run Artifact 已以 pending、摘要、补偿和审计收敛，通用附件的后台 finalize/outbox 与孤儿回收仍待深化。
 6. 阶段五已加入本机 Vault/Secret Manager 边界；病毒扫描、对象生命周期、备份恢复和真实容器故障演练仍待完成。
 
 详细边界与练习见 [PHASE4_OBJECT_STORAGE.md](PHASE4_OBJECT_STORAGE.md)。
@@ -72,20 +72,24 @@ Worker/Broker 的详细语义见 [PHASE3_WORKER_AND_BROKER.md](PHASE3_WORKER_AND
 4. Provider 客户端禁代理、重定向和压缩响应，每次调用校验解析地址并限制响应体；默认 `local_lab` 仍在 Secret/DNS/socket 前失败关闭。
 5. Compose `ci-lab` profile 使用独立 internal 网络、固定 IP、只读文件系统、非 root 用户和独立数据卷；当前机器没有 Docker，所以只完成静态与 Python 自动化验证。
 
-### 六 B：下一步
+### 六 B：已编码并完成本机自动化验证
 
-1. 为 CI Run 增加审批记录与不可绕过的质量门禁状态机。
-2. 将测试报告/制品元数据接入现有 Storage Port，并明确上传补偿、摘要与审计语义。
-3. 增加独立签名 Webhook：时间窗、常量时间验签、事件唯一键、重放保护和轮询对账。
-4. 保持 Jenkins/GitLab/BK-CI 真实环境关闭；需要产品练习时只安装我们自己的测试实例，并逐个核对版本契约。
+1. CI Run 增加审批记录和不可绕过的质量门禁；独立 `pipeline.approve` 权限、禁止触发人自批、事件幂等和 Webhook 防绕过均有测试。
+2. 测试报告/Artifact 元数据接入 Storage Port，显式处理 pending、ready、failed、deleted、摘要、上传/删除补偿和业务审计。
+3. 独立签名 Webhook 接收端使用专用 Secret、五分钟时间窗、常量时间 HMAC、事件唯一键与 16 KiB 上限；处理重放、乱序、序列缺口、终态回退和轮询对账。
+4. QA→CI 触发改为持久 Intent + 独立 Dispatcher；HTTP 位于数据库事务外，租约与同一幂等键用于重试和未知结果收敛。
+5. CI Lab 当前没有主动 webhook delivery Worker，只完成独立接收链路。Jenkins/GitLab/BK-CI 和公司环境仍关闭。
 
-### 六 C：随后完成
+### 六 C：已编码，等待真实容器验收
 
-1. 拆出独立 Alembic migration Job 和 Scheduler 进程。
-2. 用 PostgreSQL claim/CAS、outbox 与并发测试消除单 Web 进程假设。
-3. 验证多 Worker 崩溃恢复、重复消息、租约过期、Broker 中断与数据库恢复；在这些验证前不宣称高可用。
+1. Compose 增加一次性 Alembic migration Job；Web、Worker、Scheduler 与 Dispatcher 只校验 schema，并等待迁移成功。
+2. 独立 Scheduler 用 PostgreSQL `SKIP LOCKED` claim、数据库时钟、事务外 Cron 计算和版本/token CAS 结算；SQLite 仍是单进程教学模式。
+3. 任务与 wake-up outbox 同事务写入；独立 Outbox Dispatcher 在事务外发布固定无业务内容提示并 CAS 结算，Worker 仍由数据库 claim 授权。Web 不读取 Broker 配置。
+4. 当前机器没有 Docker，所以真实 PostgreSQL/RabbitMQ、多实例竞争、重复消息、Worker/Dispatcher 崩溃、租约过期、Broker/数据库中断和恢复尚未验收。
+5. Web 当前保持单实例，CI Lab 也保持单实例 SQLite；在备份恢复和真实故障验证前不宣称高可用。
 
-详细边界与练习见 [PHASE6_CI_LAB.md](PHASE6_CI_LAB.md)。
+详细边界见 [PHASE6_CI_LAB.md](PHASE6_CI_LAB.md)，编排状态机和练习顺序见
+[PHASE6B_6C_ORCHESTRATION.md](PHASE6B_6C_ORCHESTRATION.md)。
 
 ## 暂不追求
 

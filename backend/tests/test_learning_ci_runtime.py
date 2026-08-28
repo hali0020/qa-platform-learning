@@ -7,6 +7,7 @@ import pytest
 from app.core.config import (
     CI_LAB_HOST_ADDRESS,
     CI_LAB_PROVIDER_SECRET_NAME,
+    CI_LAB_WEBHOOK_SECRET_NAME,
     Settings,
 )
 from app.core.errors import AuthorizationError, BusinessValidationError
@@ -81,7 +82,10 @@ async def test_learning_ci_runtime_uses_only_the_code_fixed_http_policy(
 
     settings = Settings(
         provider_runtime_mode="ci_lab_local",
-        provider_secret_env_names=(CI_LAB_PROVIDER_SECRET_NAME,),
+        provider_secret_env_names=(
+            CI_LAB_PROVIDER_SECRET_NAME,
+            CI_LAB_WEBHOOK_SECRET_NAME,
+        ),
     )
     database = Database(_sqlite_url(tmp_path / "learning-runtime.db"))
     service = create_runtime_service(
@@ -108,10 +112,18 @@ async def test_learning_ci_runtime_uses_only_the_code_fixed_http_policy(
                 correlation_id="lesson-run-1",
             ),
         )
+        assert run.external_id is None
+        assert run.dispatch_status == "pending"
+        assert fake.triggered == 0
+
+        dispatched = await service.dispatch_provider_trigger_once("test-dispatcher")
+        assert dispatched is not None
+        assert dispatched.id == run.id
+        assert dispatched.external_id == "lab-run-1"
+        assert dispatched.dispatch_status == "dispatched"
         refreshed = await service.get_provider_run(connection.id, run.id)
         cancelled = await service.cancel_provider_run(connection.id, run.id)
 
-        assert run.external_id == "lab-run-1"
         assert refreshed.status == PipelineStatus.RUNNING.value
         assert cancelled.status == PipelineStatus.CANCELLED.value
         assert builder_calls == 3

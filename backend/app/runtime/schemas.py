@@ -2,14 +2,40 @@
 
 from __future__ import annotations
 
+import json
 import re
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.automation.models import MisfirePolicy, OverlapPolicy
 from app.pipeline.providers.models import ProviderKind
+
+
+_LEARNING_CI_REF = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
+_LEARNING_CI_CORRELATION_ID = re.compile(
+    r"[A-Za-z0-9][A-Za-z0-9._:-]{0,199}\Z"
+)
+_LEARNING_CI_VARIABLE_NAME = re.compile(r"[A-Z][A-Z0-9_]{0,63}\Z")
+_LEARNING_CI_SENSITIVE_SEGMENTS = frozenset(
+    {
+        "AUTH",
+        "AUTHORIZATION",
+        "COOKIE",
+        "CREDENTIAL",
+        "KEY",
+        "PASS",
+        "PASSWD",
+        "PASSWORD",
+        "PRIVATE",
+        "SECRET",
+        "TOKEN",
+    }
+)
+_LEARNING_CI_MAX_VARIABLES = 32
+_LEARNING_CI_MAX_VARIABLE_VALUE_BYTES = 512
+_LEARNING_CI_MAX_VARIABLES_JSON_BYTES = 8 * 1024
 
 
 class StrictSchema(BaseModel):
@@ -23,9 +49,10 @@ class ProviderConnectionCreate(StrictSchema):
     definition_ref: str = Field(min_length=1, max_length=300)
     config: dict[str, str] = Field(default_factory=dict)
     secret_env_var: str | None = Field(default=None, max_length=128)
+    webhook_secret_env_var: str | None = Field(default=None, max_length=128)
     enabled: bool = False
 
-    @field_validator("secret_env_var")
+    @field_validator("secret_env_var", "webhook_secret_env_var")
     @classmethod
     def valid_secret_environment_name(cls, value: str | None) -> str | None:
         if value is not None and re.fullmatch(
@@ -43,10 +70,11 @@ class ProviderConnectionPatch(StrictSchema):
     definition_ref: str | None = Field(default=None, min_length=1, max_length=300)
     config: dict[str, str] | None = None
     secret_env_var: str | None = Field(default=None, max_length=128)
+    webhook_secret_env_var: str | None = Field(default=None, max_length=128)
     enabled: bool | None = None
     version: int = Field(ge=0)
 
-    @field_validator("secret_env_var")
+    @field_validator("secret_env_var", "webhook_secret_env_var")
     @classmethod
     def valid_secret_environment_name(cls, value: str | None) -> str | None:
         return ProviderConnectionCreate.valid_secret_environment_name(value)
@@ -61,6 +89,8 @@ class ProviderConnectionView(BaseModel):
     config: dict[str, str]
     secret_env_var: str | None
     secret_configured: bool
+    webhook_secret_env_var: str | None
+    webhook_secret_configured: bool
     enabled: bool
     version: int
     created_at: datetime
@@ -96,19 +126,136 @@ class ProviderTriggerPayload(StrictSchema):
                 raise ValueError("provider variable is too large")
         return value
 
+    def validate_learning_ci_contract(self) -> None:
+        """Reject input that the fixed Learning CI HTTP contract cannot accept."""
+
+        if self.ref is not None and _LEARNING_CI_REF.fullmatch(self.ref) is None:
+            raise ValueError(
+                "ref must use 1-128 ASCII letters, digits, dots, underscores, or dashes"
+            )
+        if (
+            self.correlation_id is not None
+            and _LEARNING_CI_CORRELATION_ID.fullmatch(self.correlation_id) is None
+        ):
+            raise ValueError("correlation_id must use 1-200 safe ASCII characters")
+        if len(self.variables) > _LEARNING_CI_MAX_VARIABLES:
+            raise ValueError(
+                f"at most {_LEARNING_CI_MAX_VARIABLES} variables are allowed"
+            )
+
+        for key, item in self.variables.items():
+            if _LEARNING_CI_VARIABLE_NAME.fullmatch(key) is None:
+                raise ValueError(
+                    "variable names must use 1-64 uppercase ASCII letters, "
+                    "digits, or underscores"
+                )
+            if _LEARNING_CI_SENSITIVE_SEGMENTS.intersection(key.split("_")):
+                raise ValueError("secret-like variable names are not allowed")
+            if (
+                not item
+                or len(item.encode("utf-8"))
+                > _LEARNING_CI_MAX_VARIABLE_VALUE_BYTES
+            ):
+                raise ValueError(
+                    "variable values must contain 1-512 UTF-8 bytes"
+                )
+            if any(
+                ord(character) < 32 or ord(character) == 127
+                for character in item
+            ):
+                raise ValueError("variable values cannot contain control characters")
+            if "://" in item or "../" in item or "..\\" in item:
+                raise ValueError(
+                    "URLs and parent-relative paths are not allowed in variables"
+                )
+
+        canonical = json.dumps(
+            self.variables,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+        if len(canonical) > _LEARNING_CI_MAX_VARIABLES_JSON_BYTES:
+            raise ValueError("the canonical variable document cannot exceed 8192 bytes")
+
 
 class ProviderRunView(BaseModel):
     id: str
     connection_id: str
-    external_id: str
+    external_id: str | None
     status: str
     raw_status: str
     web_url: str | None
     message: str | None
     metadata: dict[str, Any]
     correlation_id: str | None
+    dispatch_status: str
+    quality_gate_status: str
+    reconciliation_required: bool
+    last_provider_sequence: int
+    triggered_by_name: str
+    approvals: list["ProviderRunApprovalView"] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
+
+
+class ProviderRunApprovalPayload(StrictSchema):
+    event_id: str = Field(min_length=1, max_length=200, pattern=r"[A-Za-z0-9][A-Za-z0-9._:-]{0,199}")
+    decision: Literal["approve", "reject"]
+    comment: str = Field(default="", max_length=1000)
+
+
+class ProviderRunApprovalView(BaseModel):
+    id: str
+    run_id: str
+    event_id: str
+    decision: Literal["approve", "reject"]
+    actor_name: str
+    comment: str
+    created_at: datetime
+
+
+class ProviderTriggerDispatch(StrictSchema):
+    worker_id: str = Field(default="manual-dispatcher", min_length=1, max_length=200)
+    lease_seconds: int = Field(default=30, ge=5, le=3600)
+
+
+class ProviderTriggerIntentView(BaseModel):
+    id: str
+    run_id: str
+    connection_id: str
+    status: str
+    attempts: int
+    max_attempts: int
+    available_at: datetime
+    lease_owner: str | None
+    lease_expires_at: datetime | None
+    last_error_code: str | None
+    created_at: datetime
+    updated_at: datetime
+    completed_at: datetime | None
+
+
+class ProviderWebhookPayload(StrictSchema):
+    external_id: str = Field(min_length=1, max_length=300, pattern=r"[A-Za-z0-9_-]{1,300}")
+    sequence: int = Field(ge=1)
+    occurred_at: datetime
+    status: Literal[
+        "queued",
+        "running",
+        "waiting_approval",
+        "succeeded",
+        "failed",
+        "cancelled",
+    ]
+    message: str | None = Field(default=None, max_length=500)
+
+
+class ProviderWebhookResult(BaseModel):
+    event_id: str
+    result: Literal["applied", "duplicate", "stale", "reconcile_required", "ignored"]
+    run_id: str | None
+    reconciliation_required: bool
 
 
 class TaskEnqueue(StrictSchema):
@@ -170,6 +317,22 @@ class TaskView(BaseModel):
     created_at: datetime
     started_at: datetime | None
     finished_at: datetime | None
+
+
+class TaskWakeupOutboxView(BaseModel):
+    id: str
+    task_id: str
+    generation: int
+    status: Literal["pending", "claimed", "retry_wait", "published"]
+    publish_attempts: int
+    available_at: datetime
+    lease_owner: str | None
+    lease_expires_at: datetime | None
+    last_error_code: str | None
+    version: int
+    created_at: datetime
+    updated_at: datetime
+    published_at: datetime | None
 
 
 class ClaimedTaskView(StrictSchema):

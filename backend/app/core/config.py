@@ -38,6 +38,7 @@ PROVIDER_RUNTIME_MODES = frozenset(
     {"local_lab", "ci_lab_local", "self_hosted_lab"}
 )
 CI_LAB_PROVIDER_SECRET_NAME = "QA_PROVIDER_SECRET_CI_LAB"
+CI_LAB_WEBHOOK_SECRET_NAME = "QA_PROVIDER_SECRET_CI_LAB_WEBHOOK"
 CI_LAB_HOST_BASE_URL = "http://127.0.0.1:23020"
 CI_LAB_CONTAINER_BASE_URL = "http://172.30.60.2:8080"
 CI_LAB_HOST_ADDRESS = "127.0.0.1"
@@ -896,11 +897,18 @@ class Settings:
                 raise RuntimeError(
                     "ci_lab_local 的 HTTP 例外由代码固定，禁止通用开关"
                 )
-            if self.provider_secret_env_names != (
-                CI_LAB_PROVIDER_SECRET_NAME,
+            ci_lab_secret_names = frozenset(self.provider_secret_env_names)
+            if (
+                CI_LAB_PROVIDER_SECRET_NAME not in ci_lab_secret_names
+                or not ci_lab_secret_names
+                <= {
+                    CI_LAB_PROVIDER_SECRET_NAME,
+                    CI_LAB_WEBHOOK_SECRET_NAME,
+                }
+                or len(ci_lab_secret_names) != len(self.provider_secret_env_names)
             ):
                 raise RuntimeError(
-                    "ci_lab_local 只允许 QA_PROVIDER_SECRET_CI_LAB"
+                    "ci_lab_local 只允许独立的 CI Lab 机器 Token 与 Webhook Secret"
                 )
         if self.provider_runtime_mode == "self_hosted_lab":
             if not self.provider_self_hosted_ownership_acknowledged:

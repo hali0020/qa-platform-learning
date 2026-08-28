@@ -7,7 +7,6 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.cors import CORSMiddleware
 
 from app.api.router import api_router
-from app.broker.factory import build_wakeup_publisher
 from app.container import build_container
 from app.core.config import Settings, get_settings
 from app.core.errors import DomainError
@@ -37,14 +36,11 @@ async def lifespan(application: FastAPI):
                 await application.state.pipeline_service.shutdown()
         finally:
             try:
-                await application.state.wakeup_publisher.close()
+                await application.state.runtime_service.shutdown()
             finally:
-                try:
-                    await application.state.runtime_service.shutdown()
-                finally:
-                    # Dispose a partially initialized SQLAlchemy engine too,
-                    # while preserving the original startup exception.
-                    await application.state.container.shutdown()
+                # Dispose a partially initialized SQLAlchemy engine too,
+                # while preserving the original startup exception.
+                await application.state.container.shutdown()
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -69,13 +65,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         settings=current_settings,
     )
     application.state.container = build_container(database, current_settings)
-    application.state.wakeup_publisher = build_wakeup_publisher(current_settings)
     secret_store = build_secret_store(current_settings)
     application.state.runtime_service = create_runtime_service(
         database,
         current_settings,
         provider_metrics=application.state.observability.metrics.business,
-        wakeup_publisher=application.state.wakeup_publisher,
         secret_store=secret_store,
     )
     application.state.data_transfer_service = (
@@ -98,11 +92,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "Idempotency-Key",
             "X-CSRF-Token",
             "X-Request-ID",
+            "X-QA-Webhook-Event-ID",
+            "X-QA-Webhook-Timestamp",
+            "X-QA-Webhook-Signature",
         ],
         expose_headers=[
             "Content-Disposition",
             "X-Export-Count",
             "X-Request-ID",
+            "X-Artifact-SHA256",
         ],
     )
 

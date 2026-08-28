@@ -47,9 +47,13 @@ import type {
   ProviderConnection,
   ProviderConnectionCreate,
   ProviderConnectionPatch,
+  ProviderGateDecisionRequest,
+  ProviderRunArtifact,
+  ProviderArtifactKind,
   ProviderRuntimeStatus,
   ProviderRun,
   ProviderTestResult,
+  ProviderTriggerIntent,
   ProviderTriggerRequest,
   Project,
   ProjectCreate,
@@ -314,6 +318,49 @@ export const qaApi = {
   cancelProviderRun: (connectionId: string, runId: string) =>
     apiClient.post<ProviderRun>(
       `${API_V1}/integrations/connections/${encodeURIComponent(connectionId)}/runs/${encodeURIComponent(runId)}/cancel`,
+    ),
+  listProviderTriggerIntents: () =>
+    apiClient.get<ProviderTriggerIntent[]>(
+      `${API_V1}/integrations/connections/trigger-intents/all`,
+    ),
+  dispatchOneProviderTrigger: (workerId = "web-manual-dispatcher", leaseSeconds = 30) =>
+    apiClient.post<ProviderRun | null>(
+      `${API_V1}/integrations/connections/trigger-intents/dispatch-one`,
+      { worker_id: workerId, lease_seconds: leaseSeconds },
+    ),
+  decideProviderQualityGate: (
+    connectionId: string,
+    runId: string,
+    payload: ProviderGateDecisionRequest,
+  ) => apiClient.post<ProviderRun>(
+    `${API_V1}/integrations/connections/${encodeURIComponent(connectionId)}/runs/${encodeURIComponent(runId)}/gate-decisions`,
+    payload,
+  ),
+  listProviderRunArtifacts: (connectionId: string, runId: string) =>
+    apiClient.get<ProviderRunArtifact[]>(
+      `${API_V1}/integrations/connections/${encodeURIComponent(connectionId)}/runs/${encodeURIComponent(runId)}/artifacts`,
+    ),
+  uploadProviderRunArtifact: (
+    connectionId: string,
+    runId: string,
+    kind: ProviderArtifactKind,
+    file: File,
+  ) => {
+    const form = new FormData();
+    form.set("kind", kind);
+    form.set("file", file);
+    return apiClient.upload<ProviderRunArtifact>(
+      `${API_V1}/integrations/connections/${encodeURIComponent(connectionId)}/runs/${encodeURIComponent(runId)}/artifacts`,
+      form,
+    );
+  },
+  downloadProviderRunArtifact: (connectionId: string, runId: string, artifactId: string) =>
+    apiClient.download(
+      `${API_V1}/integrations/connections/${encodeURIComponent(connectionId)}/runs/${encodeURIComponent(runId)}/artifacts/${encodeURIComponent(artifactId)}/content`,
+    ),
+  deleteProviderRunArtifact: (connectionId: string, runId: string, artifactId: string) =>
+    apiClient.delete<ProviderRunArtifact>(
+      `${API_V1}/integrations/connections/${encodeURIComponent(connectionId)}/runs/${encodeURIComponent(runId)}/artifacts/${encodeURIComponent(artifactId)}`,
     ),
 
   listAutomationTasks: () =>

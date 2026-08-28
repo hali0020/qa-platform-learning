@@ -1,9 +1,10 @@
 """Durable, local-first integration and automation learning service.
 
 Every state transition is persisted in SQL. SQLite keeps its process-local
-teaching lock; PostgreSQL task workers claim and recover leases with row locks
-and ``SKIP LOCKED``. This remains an at-least-once task database, not a broker:
-scheduler leader election and an outbox are separate production concerns.
+teaching lock; PostgreSQL workers, schedulers and outbox dispatchers claim
+leases with row locks and ``SKIP LOCKED``. Schedule planning and broker I/O
+run outside database transactions; token/version CAS authorizes finalization.
+The task database remains authoritative and RabbitMQ carries no task data.
 """
 
 from __future__ import annotations
@@ -24,6 +25,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Protocol
 from uuid import uuid4
 
+from pydantic import ValidationError
 from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -44,6 +46,7 @@ from app.core.config import (
     CI_LAB_HOST_ADDRESS,
     CI_LAB_HOST_BASE_URL,
     CI_LAB_PROVIDER_SECRET_NAME,
+    CI_LAB_WEBHOOK_SECRET_NAME,
     PROVIDER_RUNTIME_MODES,
     _is_loopback_host,
     _is_loopback_network,
@@ -55,10 +58,12 @@ from app.core.errors import (
     InvalidStateError,
     NotFoundError,
 )
+from app.core.actor import get_current_actor
 from app.database.session import Database
 from app.pipeline.providers.base import PipelineProvider
 from app.pipeline.providers.bkci import BkCiPipelineProvider
 from app.pipeline.providers.errors import (
+    ProviderConfigurationError,
     ProviderConflictError,
     ProviderDisabledError,
     ProviderError,
@@ -67,14 +72,25 @@ from app.pipeline.providers.errors import (
 from app.pipeline.providers.gitlab import GitLabPipelineProvider
 from app.pipeline.providers.jenkins import JenkinsPipelineProvider
 from app.pipeline.providers.learning_ci import LearningCiPipelineProvider
-from app.pipeline.providers.models import ProviderKind, ProviderRun, ProviderTriggerRequest
+from app.pipeline.providers.models import (
+    ProviderGateDecision,
+    ProviderGateDecisionRequest,
+    ProviderKind,
+    ProviderQualityGateStatus,
+    ProviderRun,
+    ProviderTriggerRequest,
+)
 from app.pipeline.providers.security import OutboundPolicy
 from app.runtime.orm import (
     AutomationTaskRecord,
+    AutomationTaskWakeupOutboxRecord,
     DeviceLeaseRecord,
     DeviceRecord,
     ProviderConnectionRecord,
+    ProviderRunApprovalRecord,
     ProviderRunRecord,
+    ProviderTriggerIntentRecord,
+    ProviderWebhookEventRecord,
     ScheduleFireRecord,
     ScheduleRecord,
 )
@@ -90,20 +106,30 @@ from app.runtime.schemas import (
     ProviderConnectionCreate,
     ProviderConnectionPatch,
     ProviderConnectionView,
+    ProviderRunApprovalPayload,
+    ProviderRunApprovalView,
     ProviderRunView,
     ProviderTestResult,
     ProviderTriggerPayload,
+    ProviderTriggerIntentView,
+    ProviderWebhookPayload,
+    ProviderWebhookResult,
     ScheduleCreate,
     ScheduleFireView,
     SchedulePatch,
     ScheduleView,
     TaskEnqueue,
     TaskView,
+    TaskWakeupOutboxView,
 )
 from app.secrets import (
     EnvironmentSecretStore,
     SecretStore,
     SecretStoreError,
+)
+from app.runtime.webhook_security import (
+    WebhookSecurityError,
+    WebhookVerifier,
 )
 
 
@@ -115,6 +141,7 @@ DEFAULT_TASK_TYPES = frozenset(
         "qa.device.execute",
     }
 )
+SCHEDULE_TICK_BATCH_LIMIT = 100
 
 logger = logging.getLogger("qa.runtime")
 
@@ -187,6 +214,40 @@ class _CronDuePlan:
     skipped: tuple[datetime, ...]
     latest_due: datetime
     next_run_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class _ClaimedSchedule:
+    """Immutable input captured by the short schedule-claim transaction."""
+
+    id: str
+    task_type: str
+    payload: dict[str, Any]
+    queue: str
+    priority: int
+    max_attempts: int
+    cron: str
+    timezone: str
+    misfire_policy: str
+    overlap_policy: str
+    misfire_grace_seconds: int
+    catch_up_limit: int
+    first_due: datetime
+    claimed_at: datetime
+    expected_version: int
+    scheduler_id: str
+    claim_token: str
+
+
+@dataclass(frozen=True, slots=True)
+class _ClaimedTaskWakeup:
+    """Lease proof retained only while one content-free hint is published."""
+
+    outbox_id: str
+    dispatcher_id: str
+    lease_token: str
+    expected_version: int
+    publish_attempts: int
 
 
 def _cron_due_plan(
@@ -328,6 +389,17 @@ class ProviderMetricsObserver(Protocol):
     ) -> None: ...
 
 
+@dataclass(frozen=True, slots=True)
+class _ClaimedProviderTrigger:
+    intent_id: str
+    run_id: str
+    lease_token: str
+    connection: ProviderConnectionRecord
+    request: ProviderTriggerRequest
+    attempts: int
+    max_attempts: int
+
+
 class PersistentRuntimeService:
     """Persistent API application service for one local Python process."""
 
@@ -403,6 +475,7 @@ class PersistentRuntimeService:
             definition_ref,
             config,
             payload.secret_env_var,
+            payload.webhook_secret_env_var,
         )
         if not name or not definition_ref:
             raise BusinessValidationError("连接名称和 definition_ref 不能为空")
@@ -415,6 +488,7 @@ class PersistentRuntimeService:
             definition_ref=definition_ref,
             config=config,
             secret_env_var=payload.secret_env_var,
+            webhook_secret_env_var=payload.webhook_secret_env_var,
             enabled=payload.enabled,
             version=0,
             created_at=now,
@@ -468,6 +542,7 @@ class PersistentRuntimeService:
                 record.definition_ref,
                 dict(record.config),
                 record.secret_env_var,
+                record.webhook_secret_env_var,
             )
             record.version += 1
             record.updated_at = _utc_now()
@@ -517,15 +592,33 @@ class PersistentRuntimeService:
     async def trigger_provider(
         self, connection_id: str, payload: ProviderTriggerPayload
     ) -> ProviderRunView:
-        request = ProviderTriggerRequest(
-            definition_ref="placeholder",  # replaced from stored binding below
-            ref=payload.ref,
-            variables=payload.variables,
-            correlation_id=payload.correlation_id,
-        )
+        """Persist a trigger intent without contacting the provider.
+
+        The dispatcher performs provider I/O after this transaction commits.
+        This removes the former long transaction and leaves an observable row
+        when the remote result is uncertain.
+        """
+
         async with self.repository.transaction() as session:
             connection = await self._require_connection(session, connection_id)
-            request.definition_ref = connection.definition_ref
+            if not connection.enabled:
+                raise AuthorizationError("该 provider 连接未开启")
+            self._validate_provider_dispatch_boundary(connection)
+            kind = ProviderKind(connection.kind)
+            if kind == ProviderKind.LEARNING_CI:
+                try:
+                    payload.validate_learning_ci_contract()
+                except ValueError as error:
+                    raise BusinessValidationError(
+                        f"Learning CI 触发参数无效：{error}"
+                    ) from None
+            correlation_id = payload.correlation_id or f"qa-{uuid4().hex}"
+            request = ProviderTriggerRequest(
+                definition_ref=connection.definition_ref,
+                ref=payload.ref,
+                variables=payload.variables,
+                correlation_id=correlation_id,
+            )
             fingerprint = _json_fingerprint(request.model_dump(mode="json"))
             if payload.correlation_id is not None:
                 previous = await session.scalar(
@@ -537,47 +630,156 @@ class PersistentRuntimeService:
                 if previous is not None:
                     if not hmac.compare_digest(previous.request_fingerprint, fingerprint):
                         raise ConflictError("correlation_id 已用于不同的触发参数")
-                    return self._provider_run_view(previous)
+                    approvals = await self._approval_views(session, previous.id)
+                    return self._provider_run_view(previous, approvals)
 
-            kind = ProviderKind(connection.kind)
+            gate_status = (
+                ProviderQualityGateStatus.EVALUATING.value
+                if kind == ProviderKind.LEARNING_CI
+                and connection.definition_ref == "local-quality-gate"
+                else ProviderQualityGateStatus.NOT_REQUIRED.value
+            )
+            actor = get_current_actor()
+            now = _utc_now()
+            run_id = str(uuid4())
+            record = ProviderRunRecord(
+                id=run_id,
+                connection_id=connection_id,
+                external_id=None,
+                status="queued",
+                raw_status="trigger_pending",
+                web_url=None,
+                message="trigger intent is waiting for a dispatcher",
+                run_metadata={
+                    "definition_ref": connection.definition_ref,
+                    "ref": payload.ref,
+                },
+                correlation_id=correlation_id,
+                request_fingerprint=fingerprint,
+                dispatch_status="pending",
+                quality_gate_status=gate_status,
+                last_provider_sequence=0,
+                last_provider_occurred_at=None,
+                reconciliation_required=False,
+                triggered_by_user_id=(str(actor.user_id) if actor is not None else None),
+                triggered_by_name=(actor.username if actor is not None else "local-user"),
+                version=0,
+                created_at=now,
+                updated_at=now,
+            )
+            intent = ProviderTriggerIntentRecord(
+                id=str(uuid4()),
+                run_id=run_id,
+                connection_id=connection_id,
+                connection_version=connection.version,
+                request_payload=request.model_dump(mode="json"),
+                idempotency_key=correlation_id,
+                request_fingerprint=fingerprint,
+                status="pending",
+                attempts=0,
+                max_attempts=5,
+                available_at=now,
+                lease_owner=None,
+                lease_token_hash=None,
+                lease_expires_at=None,
+                last_error_code=None,
+                created_at=now,
+                updated_at=now,
+                completed_at=None,
+            )
+            session.add(record)
+            session.add(intent)
+            await session.flush()
+            return self._provider_run_view(record, [])
+
+    async def list_provider_trigger_intents(self) -> list[ProviderTriggerIntentView]:
+        async with self.repository.transaction() as session:
+            records = list(
+                (
+                    await session.scalars(
+                        select(ProviderTriggerIntentRecord).order_by(
+                            ProviderTriggerIntentRecord.created_at.desc(),
+                            ProviderTriggerIntentRecord.id,
+                        )
+                    )
+                ).all()
+            )
+            return [self._provider_intent_view(record) for record in records]
+
+    async def dispatch_provider_trigger_once(
+        self,
+        worker_id: str,
+        lease_seconds: int = 30,
+    ) -> ProviderRunView | None:
+        """Claim one outbox row, perform HTTP outside SQL, then finalize."""
+
+        normalized_worker = worker_id.strip()
+        if not normalized_worker or len(normalized_worker) > 200:
+            raise BusinessValidationError("dispatcher worker_id 无效")
+        if not 5 <= lease_seconds <= 3600:
+            raise BusinessValidationError("dispatcher lease_seconds 必须在 5 到 3600 之间")
+        claimed = await self._claim_provider_trigger(
+            normalized_worker,
+            lease_seconds,
+        )
+        if claimed is None:
+            return None
+
+        kind = ProviderKind(claimed.connection.kind)
+        try:
+            if claimed.connection.version != await self._connection_version(
+                claimed.connection.id
+            ):
+                await self._settle_provider_trigger_failure(
+                    claimed,
+                    error_code="connection_version_changed",
+                    retryable=False,
+                )
+                return await self._get_local_provider_run(claimed.run_id)
+
             with self._observe_provider(kind, "trigger"):
-                if kind == ProviderKind.LOCAL and not connection.enabled:
-                    raise AuthorizationError("该 provider 连接未开启")
                 if kind == ProviderKind.LOCAL:
                     run = ProviderRun(
                         provider=kind,
                         external_id=str(uuid4()),
                         status="queued",
                         raw_status="queued",
-                        metadata={"definition_ref": connection.definition_ref, "ref": payload.ref},
+                        metadata={
+                            "definition_ref": claimed.connection.definition_ref,
+                            "ref": claimed.request.ref,
+                        },
                     )
                 else:
-                    provider = await self._build_enabled_provider(connection)
+                    provider = await self._build_enabled_provider(claimed.connection)
                     try:
-                        try:
-                            run = await provider.trigger(request)
-                        except ProviderError as error:
-                            raise _safe_provider_error(error) from error
+                        run = await provider.trigger(claimed.request)
                     finally:
                         await provider.aclose()
-            now = _utc_now()
-            record = ProviderRunRecord(
-                id=str(uuid4()),
-                connection_id=connection_id,
-                external_id=run.external_id,
-                status=run.status.value,
-                raw_status=run.raw_status,
-                web_url=run.web_url,
-                message=run.message,
-                run_metadata=dict(run.metadata),
-                correlation_id=payload.correlation_id,
-                request_fingerprint=fingerprint,
-                created_at=now,
-                updated_at=now,
+        except ProviderError as error:
+            retryable = kind == ProviderKind.LEARNING_CI and not isinstance(
+                error,
+                (
+                    ProviderConfigurationError,
+                    ProviderConflictError,
+                    ProviderSecurityError,
+                    ProviderDisabledError,
+                ),
             )
-            session.add(record)
-            await session.flush()
-            return self._provider_run_view(record)
+            await self._settle_provider_trigger_failure(
+                claimed,
+                error_code="provider_result_unknown" if retryable else "provider_rejected",
+                retryable=retryable,
+            )
+            return await self._get_local_provider_run(claimed.run_id)
+        except (AuthorizationError, BusinessValidationError):
+            await self._settle_provider_trigger_failure(
+                claimed,
+                error_code="provider_configuration_rejected",
+                retryable=False,
+            )
+            return await self._get_local_provider_run(claimed.run_id)
+
+        return await self._finalize_provider_trigger(claimed, run)
 
     async def list_provider_runs(self, connection_id: str) -> list[ProviderRunView]:
         async with self.repository.transaction() as session:
@@ -591,7 +793,28 @@ class PersistentRuntimeService:
                     )
                 ).all()
             )
-            return [self._provider_run_view(record) for record in records]
+            approval_rows = list(
+                (
+                    await session.scalars(
+                        select(ProviderRunApprovalRecord)
+                        .join(
+                            ProviderRunRecord,
+                            ProviderRunRecord.id == ProviderRunApprovalRecord.run_id,
+                        )
+                        .where(ProviderRunRecord.connection_id == connection_id)
+                        .order_by(ProviderRunApprovalRecord.created_at)
+                    )
+                ).all()
+            )
+            approvals_by_run: dict[str, list[ProviderRunApprovalView]] = {}
+            for approval in approval_rows:
+                approvals_by_run.setdefault(approval.run_id, []).append(
+                    self._approval_view(approval)
+                )
+            return [
+                self._provider_run_view(record, approvals_by_run.get(record.id, []))
+                for record in records
+            ]
 
     async def get_provider_run(self, connection_id: str, run_id: str) -> ProviderRunView:
         return await self._refresh_provider_run(connection_id, run_id, cancel=False)
@@ -602,41 +825,534 @@ class PersistentRuntimeService:
     async def _refresh_provider_run(
         self, connection_id: str, run_id: str, *, cancel: bool
     ) -> ProviderRunView:
+        # Prepare a detached snapshot first. Provider/Vault I/O happens only
+        # after this transaction has committed.
         async with self.repository.transaction() as session:
             connection = await self._require_connection(session, connection_id)
             record = await session.get(ProviderRunRecord, run_id)
             if record is None or record.connection_id != connection_id:
                 raise NotFoundError("集成运行", run_id)
-            kind = ProviderKind(connection.kind)
-            with self._observe_provider(kind, "cancel" if cancel else "query"):
-                if kind == ProviderKind.LOCAL and not connection.enabled:
-                    raise AuthorizationError("该 provider 连接未开启")
-                if kind == ProviderKind.LOCAL:
-                    if cancel and record.status not in {"succeeded", "failed", "cancelled"}:
+            approvals = await self._approval_views(session, run_id)
+            if record.external_id is None:
+                if cancel and record.dispatch_status in {"pending", "retry_wait"}:
+                    intent = await session.scalar(
+                        select(ProviderTriggerIntentRecord).where(
+                            ProviderTriggerIntentRecord.run_id == run_id
+                        )
+                    )
+                    if intent is not None and intent.status in {"pending", "retry_wait"}:
+                        now = _utc_now()
+                        intent.status = "cancelled"
+                        intent.completed_at = now
+                        intent.updated_at = now
                         record.status = "cancelled"
-                        record.raw_status = "cancelled"
-                        record.message = "cancelled by local simulator"
-                        record.updated_at = _utc_now()
-                    return self._provider_run_view(record)
+                        record.raw_status = "cancelled_before_dispatch"
+                        record.dispatch_status = "cancelled"
+                        record.quality_gate_status = "cancelled"
+                        record.message = "cancelled before provider dispatch"
+                        record.updated_at = now
+                        record.version += 1
+                return self._provider_run_view(record, approvals)
+            kind = ProviderKind(connection.kind)
+            external_id = record.external_id
+            expected_version = record.version
+
+        with self._observe_provider(kind, "cancel" if cancel else "query"):
+            if kind == ProviderKind.LOCAL:
+                run = ProviderRun(
+                    provider=kind,
+                    external_id=external_id,
+                    status="cancelled" if cancel else record.status,
+                    raw_status="cancelled" if cancel else record.raw_status,
+                    web_url=record.web_url,
+                    message=(
+                        "cancelled by local simulator" if cancel else record.message
+                    ),
+                    metadata=dict(record.run_metadata),
+                )
+            else:
                 provider = await self._build_enabled_provider(connection)
                 try:
                     try:
                         run = (
-                            await provider.cancel(record.external_id)
+                            await provider.cancel(external_id)
                             if cancel
-                            else await provider.get(record.external_id)
+                            else await provider.get(external_id)
                         )
                     except ProviderError as error:
                         raise _safe_provider_error(error) from error
                 finally:
                     await provider.aclose()
-                record.status = run.status.value
-                record.raw_status = run.raw_status
-                record.web_url = run.web_url
-                record.message = run.message
-                record.run_metadata = dict(run.metadata)
-                record.updated_at = _utc_now()
-                return self._provider_run_view(record)
+
+        async with self.repository.transaction() as session:
+            current = await self.repository.get_provider_run_for_update(session, run_id)
+            if current is None or current.connection_id != connection_id:
+                raise NotFoundError("集成运行", run_id)
+            if current.version != expected_version:
+                # A webhook or another poll won the race. Return its newer
+                # local truth and ask the caller to refresh if still needed.
+                approvals = await self._approval_views(session, run_id)
+                return self._provider_run_view(current, approvals)
+            self._apply_provider_run_snapshot(current, run, source="poll")
+            approvals = await self._approval_views(session, run_id)
+            return self._provider_run_view(current, approvals)
+
+    async def decide_provider_quality_gate(
+        self,
+        connection_id: str,
+        run_id: str,
+        payload: ProviderRunApprovalPayload,
+    ) -> ProviderRunView:
+        """Apply one idempotent human decision to the CI Lab truth source."""
+
+        actor = get_current_actor()
+        actor_user_id = str(actor.user_id) if actor is not None else None
+        actor_name = actor.username if actor is not None else "local-user"
+        request_fingerprint = _json_fingerprint(
+            {
+                "event_id": payload.event_id,
+                "decision": payload.decision,
+                "comment": payload.comment.strip(),
+                "actor_user_id": actor_user_id,
+                "actor_name": actor_name,
+            }
+        )
+
+        async with self.repository.transaction() as session:
+            connection = await self._require_connection(session, connection_id)
+            record = await session.get(ProviderRunRecord, run_id)
+            if record is None or record.connection_id != connection_id:
+                raise NotFoundError("集成运行", run_id)
+            previous = await session.scalar(
+                select(ProviderRunApprovalRecord).where(
+                    ProviderRunApprovalRecord.run_id == run_id,
+                    ProviderRunApprovalRecord.event_id == payload.event_id,
+                )
+            )
+            if previous is not None:
+                if not hmac.compare_digest(
+                    previous.request_fingerprint, request_fingerprint
+                ):
+                    raise ConflictError("审批 event_id 已用于不同的决定")
+                approvals = await self._approval_views(session, run_id)
+                return self._provider_run_view(record, approvals)
+            if await session.scalar(
+                select(ProviderRunApprovalRecord.id).where(
+                    ProviderRunApprovalRecord.run_id == run_id
+                )
+            ) is not None:
+                raise ConflictError("质量门禁已经形成不可变决定")
+            if ProviderKind(connection.kind) != ProviderKind.LEARNING_CI:
+                raise InvalidStateError("只有 Learning CI 支持教学质量门禁")
+            if (
+                record.external_id is None
+                or record.dispatch_status != "dispatched"
+                or record.quality_gate_status != "waiting_approval"
+                or record.raw_status != "waiting_approval"
+            ):
+                raise InvalidStateError("运行尚未到达可审批的质量门禁")
+            if (
+                actor_user_id is not None
+                and record.triggered_by_user_id == actor_user_id
+            ):
+                raise AuthorizationError("触发人不能审批自己的质量门禁")
+            external_id = record.external_id
+            expected_version = record.version
+
+        decision_request = ProviderGateDecisionRequest(
+            event_id=payload.event_id,
+            decision=ProviderGateDecision(payload.decision),
+            actor_id=actor_user_id or "local-user",
+            actor_name=actor_name,
+            comment=payload.comment,
+        )
+        provider = await self._build_enabled_provider(connection)
+        try:
+            try:
+                run = await provider.decide_gate(external_id, decision_request)
+            except ProviderError as error:
+                raise _safe_provider_error(error) from error
+        finally:
+            await provider.aclose()
+
+        async with self.repository.transaction() as session:
+            current = await self.repository.get_provider_run_for_update(session, run_id)
+            if current is None or current.connection_id != connection_id:
+                raise NotFoundError("集成运行", run_id)
+            previous = await session.scalar(
+                select(ProviderRunApprovalRecord).where(
+                    ProviderRunApprovalRecord.run_id == run_id,
+                    ProviderRunApprovalRecord.event_id == payload.event_id,
+                )
+            )
+            if previous is not None:
+                if not hmac.compare_digest(
+                    previous.request_fingerprint, request_fingerprint
+                ):
+                    raise ConflictError("审批 event_id 已用于不同的决定")
+                approvals = await self._approval_views(session, run_id)
+                return self._provider_run_view(current, approvals)
+            if current.version != expected_version:
+                raise ConflictError("运行状态已变化，请刷新后使用同一 event_id 重试")
+            approval = ProviderRunApprovalRecord(
+                id=str(uuid4()),
+                run_id=run_id,
+                event_id=payload.event_id,
+                decision=payload.decision,
+                request_fingerprint=request_fingerprint,
+                actor_user_id=actor_user_id,
+                actor_name=actor_name,
+                comment=payload.comment.strip(),
+                created_at=_utc_now(),
+            )
+            session.add(approval)
+            self._apply_provider_run_snapshot(current, run, source="gate_decision")
+            await session.flush()
+            return self._provider_run_view(current, [self._approval_view(approval)])
+
+    async def _claim_provider_trigger(
+        self,
+        worker_id: str,
+        lease_seconds: int,
+    ) -> _ClaimedProviderTrigger | None:
+        now_fallback = _utc_now()
+        lease_token = secrets.token_urlsafe(32)
+        async with self.repository.transaction() as session:
+            now = await self.repository.database_now(
+                session,
+                fallback=now_fallback,
+            )
+            intent = await self.repository.claim_provider_trigger_intent(
+                session,
+                now=now,
+            )
+            if intent is None:
+                return None
+            run = await self.repository.get_provider_run_for_update(
+                session,
+                intent.run_id,
+            )
+            connection = await session.get(
+                ProviderConnectionRecord,
+                intent.connection_id,
+            )
+            if run is None or connection is None:
+                raise InvalidStateError("触发 Intent 的关联数据不存在")
+            intent.status = "claimed"
+            intent.attempts += 1
+            intent.lease_owner = worker_id
+            intent.lease_token_hash = _token_hash(lease_token)
+            intent.lease_expires_at = now + timedelta(seconds=lease_seconds)
+            intent.updated_at = now
+            run.dispatch_status = "dispatching"
+            run.updated_at = now
+            run.version += 1
+            request = ProviderTriggerRequest.model_validate(intent.request_payload)
+            return _ClaimedProviderTrigger(
+                intent_id=intent.id,
+                run_id=run.id,
+                lease_token=lease_token,
+                connection=connection,
+                request=request,
+                attempts=intent.attempts,
+                max_attempts=intent.max_attempts,
+            )
+
+    async def _connection_version(self, connection_id: str) -> int:
+        async with self.repository.transaction() as session:
+            connection = await self._require_connection(session, connection_id)
+            return connection.version
+
+    async def _finalize_provider_trigger(
+        self,
+        claimed: _ClaimedProviderTrigger,
+        run: ProviderRun,
+    ) -> ProviderRunView:
+        async with self.repository.transaction() as session:
+            intent = await self.repository.get_provider_trigger_intent_for_update(
+                session,
+                claimed.intent_id,
+            )
+            record = await self.repository.get_provider_run_for_update(
+                session,
+                claimed.run_id,
+            )
+            if intent is None or record is None:
+                raise InvalidStateError("触发 Intent 在分发期间被删除")
+            self._require_provider_intent_lease(intent, claimed)
+            now = _utc_now()
+            intent.status = "succeeded"
+            intent.lease_owner = None
+            intent.lease_token_hash = None
+            intent.lease_expires_at = None
+            intent.last_error_code = None
+            intent.updated_at = now
+            intent.completed_at = now
+            record.dispatch_status = "dispatched"
+            record.reconciliation_required = False
+            self._apply_provider_run_snapshot(record, run, source="dispatch")
+            approvals = await self._approval_views(session, record.id)
+            return self._provider_run_view(record, approvals)
+
+    async def _settle_provider_trigger_failure(
+        self,
+        claimed: _ClaimedProviderTrigger,
+        *,
+        error_code: str,
+        retryable: bool,
+    ) -> None:
+        async with self.repository.transaction() as session:
+            intent = await self.repository.get_provider_trigger_intent_for_update(
+                session,
+                claimed.intent_id,
+            )
+            run = await self.repository.get_provider_run_for_update(
+                session,
+                claimed.run_id,
+            )
+            if intent is None or run is None:
+                raise InvalidStateError("触发 Intent 在失败结算期间被删除")
+            self._require_provider_intent_lease(intent, claimed)
+            now = _utc_now()
+            should_retry = retryable and intent.attempts < intent.max_attempts
+            intent.status = "retry_wait" if should_retry else (
+                "unknown" if retryable else "failed"
+            )
+            intent.available_at = now + timedelta(
+                seconds=min(60, 2 ** min(intent.attempts, 6))
+            )
+            intent.lease_owner = None
+            intent.lease_token_hash = None
+            intent.lease_expires_at = None
+            intent.last_error_code = error_code
+            intent.updated_at = now
+            intent.completed_at = None if should_retry else now
+            run.dispatch_status = (
+                "retry_wait" if should_retry else "unknown" if retryable else "failed"
+            )
+            run.reconciliation_required = retryable
+            if not retryable:
+                run.status = "failed"
+                if (
+                    run.quality_gate_status
+                    != ProviderQualityGateStatus.NOT_REQUIRED.value
+                ):
+                    run.quality_gate_status = ProviderQualityGateStatus.FAILED.value
+            run.raw_status = "trigger_result_unknown" if retryable else "trigger_failed"
+            run.message = (
+                "provider result is uncertain; idempotent reconciliation is pending"
+                if retryable
+                else "provider trigger was rejected before a run was created"
+            )
+            run.updated_at = now
+            run.version += 1
+
+    @staticmethod
+    def _require_provider_intent_lease(
+        intent: ProviderTriggerIntentRecord,
+        claimed: _ClaimedProviderTrigger,
+    ) -> None:
+        if (
+            intent.status != "claimed"
+            or intent.lease_token_hash is None
+            or not hmac.compare_digest(
+                intent.lease_token_hash,
+                _token_hash(claimed.lease_token),
+            )
+        ):
+            raise ConflictError("dispatcher 已失去触发 Intent 租约")
+
+    async def _get_local_provider_run(self, run_id: str) -> ProviderRunView:
+        async with self.repository.transaction() as session:
+            record = await session.get(ProviderRunRecord, run_id)
+            if record is None:
+                raise NotFoundError("集成运行", run_id)
+            approvals = await self._approval_views(session, run_id)
+            return self._provider_run_view(record, approvals)
+
+    async def process_learning_ci_webhook(
+        self,
+        connection_id: str,
+        *,
+        raw_body: bytes,
+        raw_headers: list[tuple[bytes, bytes]],
+    ) -> ProviderWebhookResult:
+        """Authenticate and reduce one machine event without browser auth."""
+
+        async with self.repository.transaction() as session:
+            connection = await self._require_connection(session, connection_id)
+            if (
+                ProviderKind(connection.kind) != ProviderKind.LEARNING_CI
+                or not connection.enabled
+            ):
+                raise AuthorizationError("Webhook 连接未启用")
+            secret_name = connection.webhook_secret_env_var
+            if (
+                secret_name != CI_LAB_WEBHOOK_SECRET_NAME
+                or secret_name not in self.safety.provider_secret_env_names
+            ):
+                raise AuthorizationError("Webhook Secret 未绑定到独立白名单")
+
+        try:
+            secret = await self._secret_store.read(secret_name)
+        except SecretStoreError:
+            raise AuthorizationError("Webhook Secret 不可用") from None
+        try:
+            verified = WebhookVerifier(secret.encode("utf-8")).verify(
+                raw_body=raw_body,
+                raw_headers=raw_headers,
+            )
+        except (WebhookSecurityError, ValueError):
+            raise AuthorizationError("Webhook 验证失败") from None
+        try:
+            payload = ProviderWebhookPayload.model_validate_json(raw_body)
+        except ValidationError:
+            raise BusinessValidationError("Webhook 事件格式无效") from None
+
+        received_at = _utc_now()
+        async with self.repository.transaction() as session:
+            previous = await session.scalar(
+                select(ProviderWebhookEventRecord).where(
+                    ProviderWebhookEventRecord.connection_id == connection_id,
+                    ProviderWebhookEventRecord.event_id == verified.event_id,
+                )
+            )
+            if previous is not None:
+                if not hmac.compare_digest(
+                    previous.body_sha256,
+                    verified.body_sha256,
+                ):
+                    raise ConflictError("Webhook event_id 已绑定到不同内容")
+                run = (
+                    await session.get(ProviderRunRecord, previous.run_id)
+                    if previous.run_id is not None
+                    else None
+                )
+                return ProviderWebhookResult(
+                    event_id=verified.event_id,
+                    result="duplicate",
+                    run_id=previous.run_id,
+                    reconciliation_required=(
+                        bool(run.reconciliation_required) if run is not None else False
+                    ),
+                )
+
+            run = await session.scalar(
+                select(ProviderRunRecord).where(
+                    ProviderRunRecord.connection_id == connection_id,
+                    ProviderRunRecord.external_id == payload.external_id,
+                )
+            )
+            result = "ignored"
+            reconciliation_required = False
+            if run is not None:
+                occurred_at = _aware(payload.occurred_at)
+                if payload.sequence <= run.last_provider_sequence:
+                    result = "stale"
+                elif payload.sequence != run.last_provider_sequence + 1:
+                    result = "reconcile_required"
+                    run.reconciliation_required = True
+                    run.updated_at = received_at
+                    run.version += 1
+                elif (
+                    run.last_provider_occurred_at is not None
+                    and occurred_at < _aware(run.last_provider_occurred_at)
+                ):
+                    result = "reconcile_required"
+                    run.reconciliation_required = True
+                    run.updated_at = received_at
+                    run.version += 1
+                elif self._apply_webhook_snapshot(run, payload):
+                    result = "applied"
+                    run.last_provider_sequence = payload.sequence
+                    run.last_provider_occurred_at = occurred_at
+                    run.reconciliation_required = False
+                else:
+                    result = "reconcile_required"
+                    run.reconciliation_required = True
+                    run.updated_at = received_at
+                    run.version += 1
+                reconciliation_required = run.reconciliation_required
+
+            receipt = ProviderWebhookEventRecord(
+                id=str(uuid4()),
+                connection_id=connection_id,
+                run_id=run.id if run is not None else None,
+                event_id=verified.event_id,
+                external_id=payload.external_id,
+                body_sha256=verified.body_sha256,
+                sequence=payload.sequence,
+                occurred_at=_aware(payload.occurred_at),
+                normalized_status=payload.status,
+                result=result,
+                received_at=received_at,
+                processed_at=_utc_now(),
+            )
+            session.add(receipt)
+            await session.flush()
+            return ProviderWebhookResult(
+                event_id=verified.event_id,
+                result=result,
+                run_id=run.id if run is not None else None,
+                reconciliation_required=reconciliation_required,
+            )
+
+    @staticmethod
+    def _apply_webhook_snapshot(
+        record: ProviderRunRecord,
+        payload: ProviderWebhookPayload,
+    ) -> bool:
+        # A quality-gated run cannot be advanced to ``running`` by a webhook.
+        # Only the dedicated approval endpoint may release the gate; accepting
+        # a provider event here would make the supposedly mandatory gate
+        # bypassable.
+        if (
+            record.quality_gate_status == "waiting_approval"
+            and payload.status not in {
+                "waiting_approval",
+                "failed",
+                "cancelled",
+            }
+        ):
+            return False
+        next_local = (
+            "queued" if payload.status in {"queued", "waiting_approval"} else payload.status
+        )
+        allowed: dict[str, set[str]] = {
+            "queued": {"queued", "running", "succeeded", "failed", "cancelled"},
+            "running": {"running", "queued", "succeeded", "failed", "cancelled"},
+            "succeeded": {"succeeded"},
+            "failed": {"failed"},
+            "cancelled": {"cancelled"},
+        }
+        # ``running -> queued`` is allowed only for the explicit approval wait,
+        # which the normalized pipeline status represents as queued.
+        if next_local not in allowed.get(record.status, set()):
+            return False
+        if (
+            record.status == "running"
+            and next_local == "queued"
+            and payload.status != "waiting_approval"
+        ):
+            return False
+        record.status = next_local
+        record.raw_status = payload.status
+        record.message = payload.message
+        if payload.status == "waiting_approval":
+            record.quality_gate_status = "waiting_approval"
+        elif payload.status == "succeeded" and record.quality_gate_status == "waiting_approval":
+            record.quality_gate_status = "approved"
+        elif payload.status == "failed":
+            record.quality_gate_status = (
+                "rejected"
+                if record.quality_gate_status == "waiting_approval"
+                else "failed"
+            )
+        elif payload.status == "cancelled":
+            record.quality_gate_status = "cancelled"
+        record.updated_at = _utc_now()
+        record.version += 1
+        return True
 
     # ------------------------------------------------------------------
     # Persistent at-least-once task queue
@@ -658,26 +1374,129 @@ class PersistentRuntimeService:
                 available_at=payload.available_at,
             )
             result = self._task_view(record), replayed
-        await self._publish_task_wakeup()
+        # Production Web processes do not receive a publisher.  This optional
+        # seam keeps deterministic adapter tests useful while still going
+        # through the durable outbox state machine.
+        if self._wakeup_publisher is not None:
+            await self.dispatch_task_wakeup_once(
+                dispatcher_id="inline-test-outbox",
+                publisher=self._wakeup_publisher,
+                lease_seconds=30,
+            )
         return result
 
-    async def _publish_task_wakeup(self) -> None:
-        """Best-effort hint after the authoritative database commit.
+    async def list_task_wakeup_outbox(self) -> list[TaskWakeupOutboxView]:
+        async with self.repository.transaction() as session:
+            records = list(
+                (
+                    await session.scalars(
+                        select(AutomationTaskWakeupOutboxRecord).order_by(
+                            AutomationTaskWakeupOutboxRecord.created_at,
+                            AutomationTaskWakeupOutboxRecord.id,
+                        )
+                    )
+                ).all()
+            )
+            return [self._task_wakeup_outbox_view(record) for record in records]
 
-        RabbitMQ never owns task state. A failed hint is therefore logged with
-        metadata only and recovered by the Worker's bounded database polling.
-        """
+    async def dispatch_task_wakeup_once(
+        self,
+        *,
+        dispatcher_id: str,
+        publisher: WakeupPublisher,
+        lease_seconds: int = 30,
+    ) -> bool:
+        """Publish one claimed hint outside SQL and CAS the durable result."""
 
-        if self._wakeup_publisher is None:
-            return
+        self._validate_task_wakeup_dispatcher(dispatcher_id, lease_seconds)
+        claimed = await self._claim_task_wakeup(dispatcher_id, lease_seconds)
+        if claimed is None:
+            return False
+        published = True
         try:
-            await self._wakeup_publisher.publish_wakeup()
+            await publisher.publish_wakeup()
         except Exception as error:
-            # Do not log exception text: transport errors can contain a URL or
-            # credential. Cancellation still propagates on supported Python.
+            published = False
+            # Never log exception text: AMQP errors may contain credentials.
             logger.warning(
-                "task wake-up publish failed error_type=%s",
+                "task outbox publish failed error_type=%s",
                 type(error).__name__,
+            )
+        settled = await self._settle_task_wakeup(
+            claimed,
+            published=published,
+        )
+        if not settled:
+            logger.warning("task outbox settlement lost its lease")
+        return True
+
+    @staticmethod
+    def _validate_task_wakeup_dispatcher(
+        dispatcher_id: str,
+        lease_seconds: int,
+    ) -> None:
+        if not dispatcher_id.strip() or len(dispatcher_id) > 200:
+            raise BusinessValidationError(
+                "outbox dispatcher_id 必须是 1 到 200 个字符的稳定标识"
+            )
+        if not 5 <= lease_seconds <= 3_600:
+            raise BusinessValidationError("Outbox 租约必须在 5 到 3600 秒之间")
+
+    async def _claim_task_wakeup(
+        self,
+        dispatcher_id: str,
+        lease_seconds: int,
+    ) -> _ClaimedTaskWakeup | None:
+        async with self.repository.transaction() as session:
+            now = await self.repository.database_now(session, fallback=_utc_now())
+            record = await self.repository.claim_task_wakeup_outbox(
+                session,
+                now=now,
+            )
+            if record is None:
+                return None
+            lease_token = secrets.token_urlsafe(32)
+            record.status = "claimed"
+            record.publish_attempts += 1
+            record.lease_owner = dispatcher_id
+            record.lease_token_hash = _token_hash(lease_token)
+            record.lease_expires_at = now + timedelta(seconds=lease_seconds)
+            record.updated_at = now
+            record.version += 1
+            await session.flush()
+            return _ClaimedTaskWakeup(
+                outbox_id=record.id,
+                dispatcher_id=dispatcher_id,
+                lease_token=lease_token,
+                expected_version=record.version,
+                publish_attempts=record.publish_attempts,
+            )
+
+    async def _settle_task_wakeup(
+        self,
+        claimed: _ClaimedTaskWakeup,
+        *,
+        published: bool,
+    ) -> bool:
+        async with self.repository.transaction() as session:
+            now = await self.repository.database_now(session, fallback=_utc_now())
+            retry_at = None
+            if not published:
+                retry_at = now + timedelta(
+                    seconds=min(
+                        60,
+                        2 ** max(0, claimed.publish_attempts - 1),
+                    )
+                )
+            return await self.repository.settle_task_wakeup_outbox(
+                session,
+                outbox_id=claimed.outbox_id,
+                dispatcher_id=claimed.dispatcher_id,
+                lease_token_hash=_token_hash(claimed.lease_token),
+                expected_version=claimed.expected_version,
+                now=now,
+                published=published,
+                retry_at=retry_at,
             )
 
     async def list_tasks(self) -> list[TaskView]:
@@ -790,6 +1609,7 @@ class PersistentRuntimeService:
                 record.available_at = now + timedelta(
                     seconds=min(300, 2 ** max(0, record.attempts - 1))
                 )
+                await self._add_task_wakeup_outbox(session, record, now=now)
             elif retryable:
                 record.status = TaskStatus.DEAD_LETTER.value
                 record.finished_at = now
@@ -825,6 +1645,11 @@ class PersistentRuntimeService:
             )
             record.finished_at = None
             record.error_code = None
+            await self._add_task_wakeup_outbox(
+                session,
+                record,
+                now=_aware(record.available_at),
+            )
             return self._task_view(record)
 
     async def dead_letter_task(self, task_id: str, error_code: str) -> TaskView:
@@ -1108,6 +1933,9 @@ class PersistentRuntimeService:
             enabled=payload.enabled,
             next_run_at=next_run,
             last_run_at=None,
+            claim_owner=None,
+            claim_token_hash=None,
+            claim_expires_at=None,
             version=0,
             created_at=now,
             updated_at=now,
@@ -1131,7 +1959,11 @@ class PersistentRuntimeService:
     ) -> ScheduleView:
         now = _utc_now()
         async with self.repository.transaction() as session:
-            record = await self._require_schedule(session, schedule_id)
+            record = await self._require_schedule(
+                session,
+                schedule_id,
+                for_update=True,
+            )
             if record.version != payload.version:
                 raise ConflictError("定时任务已被其他请求修改，请刷新后重试")
             was_enabled = record.enabled
@@ -1162,11 +1994,20 @@ class PersistentRuntimeService:
                 )
             record.version += 1
             record.updated_at = now
+            # Any business edit invalidates an in-flight plan. The scheduler's
+            # token/version CAS will observe the new version and must re-plan.
+            record.claim_owner = None
+            record.claim_token_hash = None
+            record.claim_expires_at = None
             return self._schedule_view(record)
 
     async def delete_schedule(self, schedule_id: str) -> bool:
         async with self.repository.transaction() as session:
-            record = await self._require_schedule(session, schedule_id)
+            record = await self._require_schedule(
+                session,
+                schedule_id,
+                for_update=True,
+            )
             has_history = await session.scalar(
                 select(ScheduleFireRecord.id).where(
                     ScheduleFireRecord.schedule_id == schedule_id
@@ -1194,7 +2035,11 @@ class PersistentRuntimeService:
     async def run_schedule_now(self, schedule_id: str) -> ScheduleFireView:
         now = _utc_now()
         async with self.repository.transaction() as session:
-            schedule = await self._require_schedule(session, schedule_id)
+            schedule = await self._require_schedule(
+                session,
+                schedule_id,
+                for_update=True,
+            )
             fire_id = str(uuid4())
             task, _ = await self._enqueue_record(
                 session,
@@ -1220,25 +2065,54 @@ class PersistentRuntimeService:
             await session.flush()
             return self._schedule_fire_view(fire)
 
-    async def tick_schedules(self, now: datetime | None = None) -> list[ScheduleFireView]:
-        current = _aware(now or _utc_now())
+    async def tick_schedules(
+        self,
+        now: datetime | None = None,
+        *,
+        scheduler_id: str | None = None,
+        lease_seconds: int = 30,
+    ) -> list[ScheduleFireView]:
+        """Claim and finalize each currently due schedule at most once.
+
+        PostgreSQL instances coordinate only through row locks and persisted
+        leases. ``excluded_ids`` prevents one batch from spinning if a claim
+        loses its final CAS to an administrative update.
+        """
+
+        owner = scheduler_id or f"inline-scheduler:{uuid4()}"
+        self._validate_scheduler_claim(owner, lease_seconds)
         created: list[ScheduleFireView] = []
-        async with self.repository.transaction() as session:
-            schedules = list(
-                (
-                    await session.scalars(
-                        select(ScheduleRecord).where(
-                            ScheduleRecord.enabled.is_(True),
-                            ScheduleRecord.next_run_at.is_not(None),
-                            ScheduleRecord.next_run_at <= current,
-                        )
-                    )
-                ).all()
+        attempted: set[str] = set()
+        while len(attempted) < SCHEDULE_TICK_BATCH_LIMIT:
+            schedule = await self._claim_due_schedule(
+                owner,
+                lease_seconds,
+                fallback_now=now,
+                excluded_ids=attempted,
             )
-            schedules.sort(key=lambda item: (_aware(item.next_run_at), item.id))
-            for schedule in schedules:
-                created.extend(await self._tick_one_schedule(session, schedule, current))
+            if schedule is None:
+                break
+            attempted.add(schedule.id)
+            created.extend(await self._execute_schedule_claim(schedule))
         return created
+
+    async def tick_schedule_once(
+        self,
+        scheduler_id: str,
+        lease_seconds: int,
+        now: datetime | None = None,
+    ) -> list[ScheduleFireView]:
+        """Process at most one due schedule for an independent Scheduler."""
+
+        self._validate_scheduler_claim(scheduler_id, lease_seconds)
+        schedule = await self._claim_due_schedule(
+            scheduler_id,
+            lease_seconds,
+            fallback_now=now,
+        )
+        if schedule is None:
+            return []
+        return await self._execute_schedule_claim(schedule)
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -1276,6 +2150,7 @@ class PersistentRuntimeService:
         definition_ref: str,
         config: dict[str, str],
         secret_env_var: str | None,
+        webhook_secret_env_var: str | None,
     ) -> None:
         rules: dict[ProviderKind, tuple[set[str], set[str]]] = {
             ProviderKind.LOCAL: (set(), set()),
@@ -1296,8 +2171,14 @@ class PersistentRuntimeService:
         ):
             raise BusinessValidationError("连接 config 的值不能为空")
         if kind == ProviderKind.LOCAL:
-            if base_url is not None or secret_env_var is not None:
-                raise BusinessValidationError("本地模拟器不能配置 URL 或凭据环境变量")
+            if (
+                base_url is not None
+                or secret_env_var is not None
+                or webhook_secret_env_var is not None
+            ):
+                raise BusinessValidationError(
+                    "本地模拟器不能配置 URL、凭据或 Webhook Secret"
+                )
         elif kind == ProviderKind.LEARNING_CI:
             if base_url is not None:
                 raise BusinessValidationError(
@@ -1306,6 +2187,11 @@ class PersistentRuntimeService:
             if secret_env_var != CI_LAB_PROVIDER_SECRET_NAME:
                 raise BusinessValidationError(
                     "Learning CI 只能使用 QA_PROVIDER_SECRET_CI_LAB"
+                )
+            if webhook_secret_env_var not in {None, CI_LAB_WEBHOOK_SECRET_NAME}:
+                raise BusinessValidationError(
+                    "Learning CI Webhook 只能使用独立的 "
+                    "QA_PROVIDER_SECRET_CI_LAB_WEBHOOK"
                 )
         elif not base_url or not secret_env_var:
             raise BusinessValidationError(
@@ -1395,6 +2281,44 @@ class PersistentRuntimeService:
             return self._provider_builder(connection, secret, policy)
         except ProviderError as error:
             raise _safe_provider_error(error) from error
+
+    def _validate_provider_dispatch_boundary(
+        self,
+        connection: ProviderConnectionRecord,
+    ) -> None:
+        """Fail before persisting an intent that this process may not dispatch."""
+
+        kind = ProviderKind(connection.kind)
+        if kind == ProviderKind.LOCAL:
+            return
+        if kind == ProviderKind.LEARNING_CI:
+            if self.safety.provider_runtime_mode != "ci_lab_local":
+                raise AuthorizationError(
+                    "Learning CI 只允许在显式 ci_lab_local 模式中访问"
+                )
+            return
+        if self.safety.provider_runtime_mode != "self_hosted_lab":
+            raise AuthorizationError(
+                "当前运行模式拒绝 Jenkins/GitLab/BK-CI 网络操作"
+            )
+        if not self.safety.provider_self_hosted_ownership_acknowledged:
+            raise AuthorizationError("尚未确认自建 Provider 实验室的环境所有权")
+        if self.safety.app_env != "local-container":
+            try:
+                loopback_only = all(
+                    _is_loopback_host(host)
+                    for host in self.safety.provider_allowed_hosts
+                ) and all(
+                    _is_loopback_network(network)
+                    for network in self.safety.provider_allowed_networks
+                )
+            except ValueError:
+                loopback_only = False
+            if not loopback_only:
+                raise AuthorizationError(
+                    "宿主机 self_hosted_lab 只允许环回目标；"
+                    "自建私网只能用于隔离的 local-container"
+                )
 
     @staticmethod
     def _default_provider_builder(
@@ -1515,7 +2439,36 @@ class PersistentRuntimeService:
         )
         session.add(record)
         await session.flush()
+        await self._add_task_wakeup_outbox(session, record, now=now)
         return record, False
+
+    @staticmethod
+    async def _add_task_wakeup_outbox(
+        session: AsyncSession,
+        task: AutomationTaskRecord,
+        *,
+        now: datetime,
+    ) -> None:
+        """Persist a data-free publish fact in the task's own transaction."""
+
+        record = AutomationTaskWakeupOutboxRecord(
+            id=str(uuid4()),
+            task_id=task.id,
+            generation=task.attempts,
+            status="pending",
+            publish_attempts=0,
+            available_at=_aware(task.available_at),
+            lease_owner=None,
+            lease_token_hash=None,
+            lease_expires_at=None,
+            last_error_code=None,
+            version=0,
+            created_at=_aware(now),
+            updated_at=_aware(now),
+            published_at=None,
+        )
+        session.add(record)
+        await session.flush()
 
     async def _recover_expired_tasks(self, session: AsyncSession, now: datetime) -> None:
         records = await self.repository.lock_expired_task_leases(
@@ -1532,6 +2485,7 @@ class PersistentRuntimeService:
                 record.available_at = now + timedelta(
                     seconds=min(300, 2 ** max(0, record.attempts - 1))
                 )
+                await self._add_task_wakeup_outbox(session, record, now=now)
             else:
                 record.status = TaskStatus.DEAD_LETTER.value
                 record.finished_at = now
@@ -1701,104 +2655,223 @@ class PersistentRuntimeService:
             raise AuthorizationError("设备租约无效或已过期")
         return lease, device, task, now
 
-    async def _tick_one_schedule(
-        self, session: AsyncSession, schedule: ScheduleRecord, now: datetime
+    @staticmethod
+    def _validate_scheduler_claim(scheduler_id: str, lease_seconds: int) -> None:
+        if not scheduler_id.strip() or len(scheduler_id) > 200:
+            raise BusinessValidationError(
+                "scheduler_id 必须是 1 到 200 个字符的稳定实例标识"
+            )
+        if not 5 <= lease_seconds <= 3_600:
+            raise BusinessValidationError("Scheduler 租约必须在 5 到 3600 秒之间")
+
+    async def _claim_due_schedule(
+        self,
+        scheduler_id: str,
+        lease_seconds: int,
+        *,
+        fallback_now: datetime | None,
+        excluded_ids: set[str] | None = None,
+    ) -> _ClaimedSchedule | None:
+        """T1: lock one candidate and commit only a bounded lease."""
+
+        async with self.repository.transaction() as session:
+            lease_now = await self.repository.database_now(
+                session,
+                fallback=_utc_now(),
+            )
+            # Injected time exists only for deterministic SQLite lessons.
+            # PostgreSQL always uses its own clock for both due selection and
+            # lease expiry, so one process cannot time-travel other instances.
+            due_at = (
+                lease_now
+                if self.repository.is_postgresql
+                else _aware(fallback_now or lease_now)
+            )
+            record = await self.repository.claim_schedule_candidate(
+                session,
+                now=lease_now,
+                due_at=due_at,
+                excluded_ids=excluded_ids or (),
+            )
+            if record is None or record.next_run_at is None:
+                return None
+            claim_token = secrets.token_urlsafe(32)
+            record.claim_owner = scheduler_id
+            record.claim_token_hash = _token_hash(claim_token)
+            record.claim_expires_at = lease_now + timedelta(seconds=lease_seconds)
+            await session.flush()
+            return _ClaimedSchedule(
+                id=record.id,
+                task_type=record.task_type,
+                payload=dict(record.payload),
+                queue=record.queue,
+                priority=record.priority,
+                max_attempts=record.max_attempts,
+                cron=record.cron,
+                timezone=record.timezone,
+                misfire_policy=record.misfire_policy,
+                overlap_policy=record.overlap_policy,
+                misfire_grace_seconds=record.misfire_grace_seconds,
+                catch_up_limit=record.catch_up_limit,
+                first_due=_aware(record.next_run_at),
+                claimed_at=due_at,
+                expected_version=record.version,
+                scheduler_id=scheduler_id,
+                claim_token=claim_token,
+            )
+
+    async def _execute_schedule_claim(
+        self,
+        schedule: _ClaimedSchedule,
     ) -> list[ScheduleFireView]:
-        expression = _parse_cron(schedule.cron)
-        first_due = _utc(schedule.next_run_at)
-        if first_due is None:
-            return []
-        policy = MisfirePolicy(schedule.misfire_policy)
+        """Plan outside SQL, then let T2 atomically CAS and enqueue."""
+
         try:
+            expression = _parse_cron(schedule.cron)
+            policy = MisfirePolicy(schedule.misfire_policy)
             plan = await asyncio.to_thread(
                 _cron_due_plan,
                 expression,
-                first_due,
-                now,
+                schedule.first_due,
+                schedule.claimed_at,
                 schedule.timezone,
                 policy,
                 schedule.misfire_grace_seconds,
                 schedule.catch_up_limit,
             )
         except AutomationValidationError as error:
+            await self._release_schedule_claim(schedule)
             raise BusinessValidationError(str(error)) from error
+        except BaseException:
+            await self._release_schedule_claim(schedule)
+            raise
+        return await self._finalize_schedule_claim(schedule, plan)
 
-        created: list[ScheduleFireView] = []
-        for instant in plan.skipped:
-            fire = await self._create_fire_if_absent(
-                session, schedule, instant, ScheduleFireStatus.SKIPPED_MISFIRE, now
+    async def _release_schedule_claim(self, schedule: _ClaimedSchedule) -> None:
+        async with self.repository.transaction() as session:
+            await self.repository.release_schedule_claim(
+                session,
+                schedule_id=schedule.id,
+                scheduler_id=schedule.scheduler_id,
+                claim_token_hash=_token_hash(schedule.claim_token),
             )
-            if fire is not None:
-                created.append(self._schedule_fire_view(fire))
 
-        for instant in plan.selected:
-            fire_key = f"cron:{instant.isoformat()}"
-            exists = await session.scalar(
-                select(ScheduleFireRecord.id).where(
-                    ScheduleFireRecord.schedule_id == schedule.id,
-                    ScheduleFireRecord.fire_key == fire_key,
-                )
+    async def _finalize_schedule_claim(
+        self,
+        schedule: _ClaimedSchedule,
+        plan: _CronDuePlan,
+    ) -> list[ScheduleFireView]:
+        """T2: token + version CAS, fires and tasks share one transaction."""
+
+        async with self.repository.transaction() as session:
+            now = await self.repository.database_now(
+                session,
+                fallback=_utc_now(),
             )
-            if exists is not None:
-                continue
-            active = list(
-                (
-                    await session.scalars(
-                        select(AutomationTaskRecord).where(
-                            AutomationTaskRecord.source_schedule_id == schedule.id,
-                            AutomationTaskRecord.status.in_(["queued", "running", "retry_wait"]),
-                        )
-                    )
-                ).all()
+            finalized = await self.repository.finalize_schedule_claim(
+                session,
+                schedule_id=schedule.id,
+                expected_version=schedule.expected_version,
+                expected_next_run_at=schedule.first_due,
+                scheduler_id=schedule.scheduler_id,
+                claim_token_hash=_token_hash(schedule.claim_token),
+                now=now,
+                last_run_at=plan.latest_due,
+                next_run_at=plan.next_run_at,
             )
-            overlap = OverlapPolicy(schedule.overlap_policy)
-            if overlap == OverlapPolicy.FORBID and active:
-                fire = await self._create_fire_if_absent(
-                    session, schedule, instant, ScheduleFireStatus.SKIPPED_OVERLAP, now
-                )
-            else:
-                if overlap == OverlapPolicy.REPLACE:
-                    for task in active:
-                        if task.status == TaskStatus.RUNNING.value:
-                            task.cancel_requested = True
-                        else:
-                            task.cancel_requested = True
-                            task.status = TaskStatus.CANCELLED.value
-                            task.finished_at = now
-                task, _ = await self._enqueue_record(
+            if not finalized:
+                # This is guarded by the token and cannot clear a newer claim.
+                await self.repository.release_schedule_claim(
                     session,
-                    task_type=schedule.task_type,
-                    task_payload=schedule.payload,
-                    queue=schedule.queue,
-                    priority=schedule.priority,
-                    max_attempts=schedule.max_attempts,
-                    idempotency_key=f"schedule:{schedule.id}:{instant.isoformat()}",
-                    source_schedule_id=schedule.id,
-                    available_at=instant,
-                )
-                fire = ScheduleFireRecord(
-                    id=str(uuid4()),
                     schedule_id=schedule.id,
-                    fire_key=fire_key,
-                    scheduled_for=instant,
-                    status=ScheduleFireStatus.ENQUEUED.value,
-                    task_id=task.id,
-                    created_at=now,
+                    scheduler_id=schedule.scheduler_id,
+                    claim_token_hash=_token_hash(schedule.claim_token),
                 )
-                session.add(fire)
-                await session.flush()
-            if fire is not None:
-                created.append(self._schedule_fire_view(fire))
-        schedule.last_run_at = plan.latest_due
-        schedule.next_run_at = plan.next_run_at
-        schedule.version += 1
-        schedule.updated_at = now
-        return created
+                return []
+
+            created: list[ScheduleFireView] = []
+            for instant in plan.skipped:
+                fire = await self._create_fire_if_absent(
+                    session,
+                    schedule.id,
+                    instant,
+                    ScheduleFireStatus.SKIPPED_MISFIRE,
+                    now,
+                )
+                if fire is not None:
+                    created.append(self._schedule_fire_view(fire))
+
+            for instant in plan.selected:
+                fire_key = f"cron:{instant.isoformat()}"
+                exists = await session.scalar(
+                    select(ScheduleFireRecord.id).where(
+                        ScheduleFireRecord.schedule_id == schedule.id,
+                        ScheduleFireRecord.fire_key == fire_key,
+                    )
+                )
+                if exists is not None:
+                    continue
+                active = list(
+                    (
+                        await session.scalars(
+                            select(AutomationTaskRecord).where(
+                                AutomationTaskRecord.source_schedule_id
+                                == schedule.id,
+                                AutomationTaskRecord.status.in_(
+                                    ["queued", "running", "retry_wait"]
+                                ),
+                            )
+                        )
+                    ).all()
+                )
+                overlap = OverlapPolicy(schedule.overlap_policy)
+                if overlap == OverlapPolicy.FORBID and active:
+                    fire = await self._create_fire_if_absent(
+                        session,
+                        schedule.id,
+                        instant,
+                        ScheduleFireStatus.SKIPPED_OVERLAP,
+                        now,
+                    )
+                else:
+                    if overlap == OverlapPolicy.REPLACE:
+                        for task in active:
+                            task.cancel_requested = True
+                            if task.status != TaskStatus.RUNNING.value:
+                                task.status = TaskStatus.CANCELLED.value
+                                task.finished_at = now
+                    task, _ = await self._enqueue_record(
+                        session,
+                        task_type=schedule.task_type,
+                        task_payload=schedule.payload,
+                        queue=schedule.queue,
+                        priority=schedule.priority,
+                        max_attempts=schedule.max_attempts,
+                        idempotency_key=(
+                            f"schedule:{schedule.id}:{instant.isoformat()}"
+                        ),
+                        source_schedule_id=schedule.id,
+                        available_at=instant,
+                    )
+                    fire = ScheduleFireRecord(
+                        id=str(uuid4()),
+                        schedule_id=schedule.id,
+                        fire_key=fire_key,
+                        scheduled_for=instant,
+                        status=ScheduleFireStatus.ENQUEUED.value,
+                        task_id=task.id,
+                        created_at=now,
+                    )
+                    session.add(fire)
+                    await session.flush()
+                if fire is not None:
+                    created.append(self._schedule_fire_view(fire))
+            return created
 
     async def _create_fire_if_absent(
         self,
         session: AsyncSession,
-        schedule: ScheduleRecord,
+        schedule_id: str,
         instant: datetime,
         status: ScheduleFireStatus,
         now: datetime,
@@ -1806,7 +2879,7 @@ class PersistentRuntimeService:
         key = f"cron:{instant.isoformat()}"
         exists = await session.scalar(
             select(ScheduleFireRecord.id).where(
-                ScheduleFireRecord.schedule_id == schedule.id,
+                ScheduleFireRecord.schedule_id == schedule_id,
                 ScheduleFireRecord.fire_key == key,
             )
         )
@@ -1814,7 +2887,7 @@ class PersistentRuntimeService:
             return None
         fire = ScheduleFireRecord(
             id=str(uuid4()),
-            schedule_id=schedule.id,
+            schedule_id=schedule_id,
             fire_key=key,
             scheduled_for=instant,
             status=status.value,
@@ -1877,9 +2950,17 @@ class PersistentRuntimeService:
         return record
 
     async def _require_schedule(
-        self, session: AsyncSession, schedule_id: str
+        self,
+        session: AsyncSession,
+        schedule_id: str,
+        *,
+        for_update: bool = False,
     ) -> ScheduleRecord:
-        record = await session.get(ScheduleRecord, schedule_id)
+        record = (
+            await self.repository.get_schedule_for_update(session, schedule_id)
+            if for_update
+            else await session.get(ScheduleRecord, schedule_id)
+        )
         if record is None:
             raise NotFoundError("定时任务", schedule_id)
         return record
@@ -1901,6 +2982,16 @@ class PersistentRuntimeService:
                     or self._environ.get(record.secret_env_var)
                 )
             ),
+            webhook_secret_env_var=record.webhook_secret_env_var,
+            webhook_secret_configured=bool(
+                record.webhook_secret_env_var
+                and record.webhook_secret_env_var
+                in self.safety.provider_secret_env_names
+                and (
+                    self._secret_store_runtime_mode == "vault_local_container"
+                    or self._environ.get(record.webhook_secret_env_var)
+                )
+            ),
             enabled=record.enabled,
             version=record.version,
             created_at=_aware(record.created_at),
@@ -1908,7 +2999,10 @@ class PersistentRuntimeService:
         )
 
     @staticmethod
-    def _provider_run_view(record: ProviderRunRecord) -> ProviderRunView:
+    def _provider_run_view(
+        record: ProviderRunRecord,
+        approvals: list[ProviderRunApprovalView] | None = None,
+    ) -> ProviderRunView:
         return ProviderRunView(
             id=record.id,
             connection_id=record.connection_id,
@@ -1919,9 +3013,113 @@ class PersistentRuntimeService:
             message=record.message,
             metadata=dict(record.run_metadata),
             correlation_id=record.correlation_id,
+            dispatch_status=record.dispatch_status,
+            quality_gate_status=record.quality_gate_status,
+            reconciliation_required=record.reconciliation_required,
+            last_provider_sequence=record.last_provider_sequence,
+            triggered_by_name=record.triggered_by_name,
+            approvals=approvals or [],
             created_at=_aware(record.created_at),
             updated_at=_aware(record.updated_at),
         )
+
+    @staticmethod
+    def _approval_view(record: ProviderRunApprovalRecord) -> ProviderRunApprovalView:
+        return ProviderRunApprovalView(
+            id=record.id,
+            run_id=record.run_id,
+            event_id=record.event_id,
+            decision=record.decision,
+            actor_name=record.actor_name,
+            comment=record.comment,
+            created_at=_aware(record.created_at),
+        )
+
+    async def _approval_views(
+        self,
+        session: AsyncSession,
+        run_id: str,
+    ) -> list[ProviderRunApprovalView]:
+        records = list(
+            (
+                await session.scalars(
+                    select(ProviderRunApprovalRecord)
+                    .where(ProviderRunApprovalRecord.run_id == run_id)
+                    .order_by(ProviderRunApprovalRecord.created_at)
+                )
+            ).all()
+        )
+        return [self._approval_view(record) for record in records]
+
+    @staticmethod
+    def _provider_intent_view(
+        record: ProviderTriggerIntentRecord,
+    ) -> ProviderTriggerIntentView:
+        return ProviderTriggerIntentView(
+            id=record.id,
+            run_id=record.run_id,
+            connection_id=record.connection_id,
+            status=record.status,
+            attempts=record.attempts,
+            max_attempts=record.max_attempts,
+            available_at=_aware(record.available_at),
+            lease_owner=record.lease_owner,
+            lease_expires_at=_utc(record.lease_expires_at),
+            last_error_code=record.last_error_code,
+            created_at=_aware(record.created_at),
+            updated_at=_aware(record.updated_at),
+            completed_at=_utc(record.completed_at),
+        )
+
+    @staticmethod
+    def _apply_provider_run_snapshot(
+        record: ProviderRunRecord,
+        run: ProviderRun,
+        *,
+        source: str,
+    ) -> bool:
+        """Apply a provider snapshot without allowing terminal regression."""
+
+        terminal = {"succeeded", "failed", "cancelled"}
+        next_status = run.status.value
+        if (
+            source != "gate_decision"
+            and record.quality_gate_status == "waiting_approval"
+            and run.raw_status != "waiting_approval"
+            and next_status not in {"failed", "cancelled"}
+        ):
+            # Polling is an observation channel, not an authorization channel.
+            # A provider snapshot must never release a mandatory human gate.
+            if not record.reconciliation_required:
+                record.reconciliation_required = True
+                record.updated_at = _utc_now()
+                record.version += 1
+            return False
+        if record.status in terminal and next_status != record.status:
+            record.reconciliation_required = True
+            record.updated_at = _utc_now()
+            record.version += 1
+            return False
+        record.external_id = run.external_id
+        record.status = next_status
+        record.raw_status = run.raw_status
+        record.web_url = run.web_url
+        record.message = run.message
+        record.run_metadata = dict(run.metadata)
+        gate_status = run.quality_gate.status.value
+        if gate_status == ProviderQualityGateStatus.NOT_REQUIRED.value:
+            if run.raw_status == "waiting_approval":
+                gate_status = ProviderQualityGateStatus.WAITING_APPROVAL.value
+            elif next_status == "failed" and record.quality_gate_status != "rejected":
+                gate_status = ProviderQualityGateStatus.FAILED.value
+            elif next_status == "cancelled":
+                gate_status = ProviderQualityGateStatus.CANCELLED.value
+        record.quality_gate_status = gate_status
+        if source in {"poll", "gate_decision"}:
+            record.reconciliation_required = False
+        record.updated_at = _utc_now()
+        record.version += 1
+        return True
 
     @staticmethod
     def _task_view(record: AutomationTaskRecord) -> TaskView:
@@ -1946,6 +3144,26 @@ class PersistentRuntimeService:
             created_at=_aware(record.created_at),
             started_at=_utc(record.started_at),
             finished_at=_utc(record.finished_at),
+        )
+
+    @staticmethod
+    def _task_wakeup_outbox_view(
+        record: AutomationTaskWakeupOutboxRecord,
+    ) -> TaskWakeupOutboxView:
+        return TaskWakeupOutboxView(
+            id=record.id,
+            task_id=record.task_id,
+            generation=record.generation,
+            status=record.status,
+            publish_attempts=record.publish_attempts,
+            available_at=_aware(record.available_at),
+            lease_owner=record.lease_owner,
+            lease_expires_at=_utc(record.lease_expires_at),
+            last_error_code=record.last_error_code,
+            version=record.version,
+            created_at=_aware(record.created_at),
+            updated_at=_aware(record.updated_at),
+            published_at=_utc(record.published_at),
         )
 
     def _effective_device_status(self, record: DeviceRecord, now: datetime) -> str:

@@ -55,6 +55,11 @@ def test_postgres_offline_upgrade_emits_portable_transactional_ddl() -> None:
     assert "CREATE TABLE users" in sql
     assert "CREATE TABLE automation_tasks" in sql
     assert "CREATE TABLE pipeline_runtime_runs" in sql
+    assert "CREATE TABLE provider_run_approvals" in sql
+    assert "CREATE TABLE provider_run_artifacts" in sql
+    assert "CREATE TABLE provider_webhook_events" in sql
+    assert "CREATE TABLE provider_trigger_intents" in sql
+    assert "CREATE TABLE automation_task_wakeup_outbox" in sql
     assert "TIMESTAMP WITH TIME ZONE" in sql
     assert "JSON" in sql
     assert "ON DELETE CASCADE" in sql
@@ -68,6 +73,19 @@ def test_postgres_offline_upgrade_emits_portable_transactional_ddl() -> None:
     assert "ADD COLUMN storage_namespace VARCHAR(200)" in sql
     assert "CONSTRAINT ck_attachments_storage_backend_allowed CHECK" in sql
     assert "CONSTRAINT ck_attachments_storage_route CHECK" in sql
+    assert "ADD COLUMN webhook_secret_env_var VARCHAR(128)" in sql
+    assert "ADD COLUMN dispatch_status VARCHAR(20)" in sql
+    assert "ADD COLUMN quality_gate_status VARCHAR(30)" in sql
+    assert "CONSTRAINT ck_provider_runs_dispatch_status CHECK" in sql
+    assert "CONSTRAINT ck_provider_runs_quality_gate_status CHECK" in sql
+    assert "CONSTRAINT ck_provider_trigger_intents_status CHECK" in sql
+    assert "CONSTRAINT ck_task_wakeup_outbox_lease_shape CHECK" in sql
+    assert "CONSTRAINT ck_task_wakeup_outbox_published_shape CHECK" in sql
+    assert "ADD COLUMN claim_owner VARCHAR(200)" in sql
+    assert "ADD COLUMN claim_token_hash VARCHAR(64)" in sql
+    assert "ADD COLUMN claim_expires_at TIMESTAMP WITH TIME ZONE" in sql
+    assert "CONSTRAINT uq_provider_webhook_events_event UNIQUE" in sql
+    assert "pipeline.approve" in sql
     assert "'s3_local_container'" in sql
     assert "'qa-artifacts'" in sql
     assert "PRAGMA" not in sql
@@ -83,6 +101,11 @@ def test_postgres_offline_downgrade_compiles_without_sqlite_operations() -> None
     assert "BEGIN;" in sql
     assert "COMMIT;" in sql
     assert "DROP TABLE automation_tasks" in sql
+    assert "DROP TABLE provider_trigger_intents" in sql
+    assert "DROP TABLE automation_task_wakeup_outbox" in sql
+    assert "DROP TABLE provider_webhook_events" in sql
+    assert "DROP TABLE provider_run_artifacts" in sql
+    assert "DROP TABLE provider_run_approvals" in sql
     assert "DROP TABLE users" in sql
     assert "DROP TABLE projects" in sql
     assert "ALTER TABLE audit_events DROP COLUMN actor_user_id" in sql
@@ -91,6 +114,11 @@ def test_postgres_offline_downgrade_compiles_without_sqlite_operations() -> None
     assert "cannot downgrade attachment storage routing" in sql
     assert "ALTER TABLE attachments DROP COLUMN storage_namespace" in sql
     assert "ALTER TABLE attachments DROP COLUMN storage_backend" in sql
+    assert "ALTER TABLE provider_connections DROP COLUMN webhook_secret_env_var" in sql
+    assert (
+        "UPDATE provider_runs SET external_id = "
+        "'local-downgrade-pending-' || id WHERE external_id IS NULL" in sql
+    )
     assert "PRAGMA" not in sql
 
 
@@ -162,6 +190,11 @@ def test_all_registered_orm_tables_compile_with_postgres_dialect() -> None:
 
     assert "projects" in compiled_tables
     assert "provider_connections" in compiled_tables
+    assert "provider_run_approvals" in compiled_tables
+    assert "provider_run_artifacts" in compiled_tables
+    assert "provider_webhook_events" in compiled_tables
+    assert "provider_trigger_intents" in compiled_tables
+    assert "automation_task_wakeup_outbox" in compiled_tables
     assert "automation_tasks" in compiled_tables
     assert all("CREATE TABLE" in sql for sql in compiled_tables.values())
     assert all("DATETIME" not in sql for sql in compiled_tables.values())

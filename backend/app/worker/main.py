@@ -118,6 +118,7 @@ async def build_worker_from_settings(
         echo=False,
         runtime_mode=current.database_runtime_mode,
         app_env=current.app_env,
+        schema_mode="verify",
     )
     try:
         service = create_runtime_service(database, current)

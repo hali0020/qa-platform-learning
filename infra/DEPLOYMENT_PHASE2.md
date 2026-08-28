@@ -17,7 +17,7 @@ Compose 的默认网络设置为 `internal: true`。运行中的后端、前端�
 
 ## 可选 PostgreSQL 实验 profile
 
-代码层已接入 PostgreSQL：FastAPI 和 SQLite 共用同一套异步 SQLAlchemy Session/Repository，驱动固定为 `asyncpg==0.31.0`；Alembic 已做 PostgreSQL 方言的离线 upgrade/downgrade SQL 验证；流水线运行快照也已转为同一异步数据库事务适配。后端启动时会通过 Alembic 将所选数据库升到 head。
+代码层已接入 PostgreSQL：FastAPI 和 SQLite 共用同一套异步 SQLAlchemy Session/Repository，驱动固定为 `asyncpg==0.31.0`；Alembic 已做 PostgreSQL 方言的离线 upgrade/downgrade SQL 验证；流水线运行快照也已转为同一异步数据库事务适配。Compose 先运行一次性 migration Job 将所选数据库升到 head；Web 和其他长运行进程只做 verify。
 
 安全默认仍然是 SQLite。只有同时将 `.env` 中的 `COMPOSE_DATABASE_RUNTIME_MODE` 改为 `postgres_local_container`、将 `COMPOSE_DATABASE_URL` 改为精确的 `postgres:5432` URL，并在启动命令中加入 `--profile postgres`，应用才会连接该容器。后端还会校验 `APP_ENV=local-container`、`postgresql+asyncpg` 驱动以及精确主机/端口，复制一条公司或公网数据库 URL 会在建立连接前被拒绝。
 
@@ -43,7 +43,8 @@ Compose 把宿主机 `POSTGRES_PASSWORD` 转换为 `postgres_password` secret；
 docker compose --env-file .env -f infra/compose.phase2.yaml --profile postgres up --build
 ```
 
-这里显式传入仓库根目录的 `.env`。默认 SQLite 启动时可选依赖不阻断后端；启用 profile 后，后端会等待 PostgreSQL 健康再启动。
+这里显式传入仓库根目录的 `.env`。默认 SQLite 启动时可选依赖不阻断 migration/
+后端；启用 profile 后，migration Job 会等待 PostgreSQL 健康，后端再等待 Job 成功。
 
 健康检查使用容器内的 `pg_isready`。不需要、也不应该为排查问题临时增加 `5432:5432`。可以通过容器内命令检查状态和版本：
 
@@ -89,11 +90,14 @@ docker compose -f infra/compose.phase2.yaml --profile observability up --build
 ## 上生产前的硬门槛
 
 1. 在真实 PostgreSQL 容器上完成在线 upgrade/downgrade、SQLite 数据搬迁、回滚恢复与并发压测，并将剩余进程内锁收敛为支持多实例事务/CAS 的实现。
-2. 数据库迁移作为独立部署 Job 执行，Web 副本不并发自动迁移。
-3. 任务 Worker 与 Scheduler 使用独立进程；任务采用 at-least-once、租约、心跳和幂等 Handler。
+2. 已编码的独立 migration Job/verify-only 进程必须在真实 PostgreSQL 从空卷、失败
+   迁移和重启场景中验收；Web 副本不得执行 schema 变更。
+3. 已编码的 Worker、Scheduler、Provider/Outbox Dispatcher 必须完成真实多实例、
+   at-least-once、租约、重复消息和崩溃恢复验收。
 4. 凭据来自 Secret Manager 或只读 secret 文件，不能放进 Compose、镜像、数据库明文字段或日志。
 5. Provider 出站只能经过域名/CIDR allowlist 与网络层 egress policy，TLS 校验不可关闭。
 6. 增加 HTTPS、认证授权、备份恢复演练、资源限制、镜像摘要/SBOM/漏洞扫描和发布回滚。
-7. 多副本前先把现有流水线“整表 JSON checkpoint”改为按 Run 增量更新并增加版本号。
+7. 多 Web 前审计剩余进程锁、跨 Repository 写入、本机文件和 Session；当前 Web
+   保持单实例，不宣称高可用。
 
 Provider API 契约依据：Jenkins Remote Access API、GitLab Pipelines API，以及 BK-CI 开源仓库中的 `UserBuildResource`。不同版本的蓝盾网关前缀和认证方式可能不同，启用前必须按目标部署重新核对；当前代码默认关闭真实 HTTP。

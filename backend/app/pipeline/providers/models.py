@@ -1,7 +1,9 @@
+from datetime import datetime
 from enum import Enum
+import re
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.pipeline.models import PipelineStatus
 
@@ -12,6 +14,85 @@ class ProviderKind(str, Enum):
     JENKINS = "jenkins"
     GITLAB = "gitlab"
     BK_CI = "bk_ci"
+
+
+class ProviderGateDecision(str, Enum):
+    APPROVE = "approve"
+    REJECT = "reject"
+
+
+class ProviderQualityGateStatus(str, Enum):
+    NOT_REQUIRED = "not_required"
+    EVALUATING = "evaluating"
+    WAITING_APPROVAL = "waiting_approval"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class ProviderGateDecisionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    event_id: str = Field(min_length=1, max_length=200)
+    decision: ProviderGateDecision
+    actor_id: str = Field(min_length=1, max_length=100)
+    actor_name: str = Field(min_length=1, max_length=100)
+    comment: str = Field(default="", max_length=1000)
+
+    @field_validator("event_id")
+    @classmethod
+    def valid_event_id(cls, value: str) -> str:
+        if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,199}", value) is None:
+            raise ValueError("approval event id must contain safe ASCII characters")
+        return value
+
+    @field_validator("actor_id")
+    @classmethod
+    def valid_actor_id(cls, value: str) -> str:
+        if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:@-]{0,99}", value) is None:
+            raise ValueError("approval actor id must contain safe ASCII characters")
+        return value
+
+    @field_validator("actor_name")
+    @classmethod
+    def valid_actor_name(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized or any(
+            ord(character) < 32 or ord(character) == 127
+            for character in normalized
+        ):
+            raise ValueError("approval actor name is invalid")
+        return normalized
+
+    @field_validator("comment")
+    @classmethod
+    def valid_comment(cls, value: str) -> str:
+        normalized = value.strip()
+        if any(
+            ord(character) < 32 or ord(character) == 127
+            for character in normalized
+        ):
+            raise ValueError("approval comment is invalid")
+        return normalized
+
+
+class ProviderApproval(BaseModel):
+    id: str
+    event_id: str
+    decision: ProviderGateDecision
+    actor_id: str
+    actor_name: str
+    comment: str
+    created_at: datetime
+
+
+class ProviderQualityGate(BaseModel):
+    required: bool = False
+    status: ProviderQualityGateStatus = ProviderQualityGateStatus.NOT_REQUIRED
+    policy_revision: int | None = None
+    reached_at: datetime | None = None
+    decided_at: datetime | None = None
 
 
 class ProviderTriggerRequest(BaseModel):
@@ -70,6 +151,17 @@ class ProviderRun(BaseModel):
     web_url: str | None = Field(default=None, max_length=2048)
     message: str | None = Field(default=None, max_length=500)
     metadata: dict[str, Any] = Field(default_factory=dict)
+    quality_gate: ProviderQualityGate = Field(default_factory=ProviderQualityGate)
+    approvals: list[ProviderApproval] = Field(default_factory=list, max_length=1)
 
 
-__all__ = ["ProviderKind", "ProviderRun", "ProviderTriggerRequest"]
+__all__ = [
+    "ProviderApproval",
+    "ProviderGateDecision",
+    "ProviderGateDecisionRequest",
+    "ProviderKind",
+    "ProviderQualityGate",
+    "ProviderQualityGateStatus",
+    "ProviderRun",
+    "ProviderTriggerRequest",
+]

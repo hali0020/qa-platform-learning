@@ -44,7 +44,9 @@ python -m app.cli.bootstrap --username admin --display-name "Platform Admin"
 .\scripts\start-frontend.ps1
 ```
 
-后端脚本先执行 Alembic，再以 `127.0.0.1:23100` 启动；前端位于 `127.0.0.1:5173`。应用 lifespan 也会幂等升级持久数据库，但手工迁移更适合学习和提前发现问题。
+后端脚本先显式执行 Alembic，再把 Web 设置为 verify-only schema 模式并以
+`127.0.0.1:23100` 启动；前端位于 `127.0.0.1:5173`。源码模式保留这一兼容流程，
+Compose 则只允许一次性 migration Job 修改 schema，其他进程只校验 head。
 
 ## 后端验证
 
@@ -69,7 +71,10 @@ python -m app.cli.bootstrap --username admin --display-name "Platform Admin"
 .\backend\.venv\Scripts\python.exe -m pytest backend\tests\test_pipeline_providers.py backend\tests\test_provider_security.py backend\tests\test_automation_tasks.py backend\tests\test_automation_devices.py backend\tests\test_automation_scheduler.py -q
 
 # 独立 Learning CI、Provider 契约、固定运行边界与端到端 ASGI 调用
-.\backend\.venv\Scripts\python.exe -m pytest backend\tests\test_ci_lab_api.py backend\tests\test_ci_lab_offline_boundary.py backend\tests\test_learning_ci_provider.py backend\tests\test_learning_ci_runtime.py -q
+.\backend\.venv\Scripts\python.exe -m pytest backend\tests\test_ci_lab_api.py backend\tests\test_ci_lab_quality_gate.py backend\tests\test_ci_lab_offline_boundary.py backend\tests\test_learning_ci_provider.py backend\tests\test_learning_ci_runtime.py backend\tests\test_runtime_phase6b.py backend\tests\test_runtime_webhook_security.py backend\tests\test_runtime_artifacts.py backend\tests\test_runtime_artifact_api.py -q
+
+# Migration Job、Scheduler claim/CAS、task wake-up outbox 与独立进程边界
+.\backend\.venv\Scripts\python.exe -m pytest backend\tests\test_migration_job.py backend\tests\test_runtime_scheduler_claims.py backend\tests\test_scheduler_runner.py backend\tests\test_scheduler_main.py backend\tests\test_runtime_task_outbox.py backend\tests\test_outbox_main.py backend\tests\test_runtime_persistence.py -q
 
 # 指标、日志与探针
 .\backend\.venv\Scripts\python.exe -m pytest backend\tests\test_observability.py -q
@@ -97,6 +102,10 @@ pnpm dev --host 127.0.0.1
 ```powershell
 docker compose -f infra/compose.phase2.yaml up --build
 ```
+
+Compose 会先运行一次性 `migration` Job；backend 只有在 Job 成功且 schema 位于
+Alembic head 时才启动。Web 的 Broker 模式固定为 `disabled_local`，只在关系库中写
+任务与 outbox，不持有 RabbitMQ URL 或 publisher。
 
 业务入口是 `http://127.0.0.1:23010`。启动监控 profile：
 
@@ -128,15 +137,33 @@ CI Lab 观察地址是 `http://127.0.0.1:23020/health/live`，QA 入口仍是
 的诊断命令。完整边界和故障练习见
 [DEPLOYMENT_PHASE6_CI_LAB.md](../infra/DEPLOYMENT_PHASE6_CI_LAB.md)。
 
-默认 Compose 仍使用单 Worker 与 SQLite。可选自建 PostgreSQL 练习必须在被 Git 忽略的 `.env` 中把 `COMPOSE_DATABASE_RUNTIME_MODE` 改为 `postgres_local_container`，把 URL 改为 `.env.example` 中的 `postgresql+asyncpg://...@postgres:5432/...` 内部地址，并提供本机教学密码，然后显式启动 profile：
+默认 Compose 使用单 Web 与 SQLite。可选自建 PostgreSQL 练习必须在被 Git 忽略的 `.env` 中把 `COMPOSE_DATABASE_RUNTIME_MODE` 改为 `postgres_local_container`，把 URL 改为 `.env.example` 中的 `postgresql+asyncpg://...@postgres:5432/...` 内部地址，并提供本机教学密码，然后显式启动 profile：
 
 ```powershell
 docker compose -f infra/compose.phase2.yaml --profile postgres up --build
 ```
 
+任务/调度编排练习使用 `worker` profile；它会启动 PostgreSQL、RabbitMQ、Worker、
+Scheduler、Outbox Dispatcher 和 Provider Dispatcher，且所有进程先等待 migration
+Job。RabbitMQ 只接收无业务内容 wake-up hint。启用前要在被忽略的 `.env` 同时设置
+服务端使用的原始 `RABBITMQ_DEFAULT_PASS`，以及凭据保留字符已做百分号编码的完整
+`COMPOSE_BROKER_URL`；Compose 不会用原始密码拼接 URL：
+
+```powershell
+.\scripts\start-worker-profile.ps1 -WorkerScale 1
+```
+
+该入口先做不输出凭据的 `.env` 一致性预检；数据库/Broker 目标不精确、服务端与
+客户端凭据不一致时不会调用 Docker。RabbitMQ 冷启动必须先通过 Compose 健康检查；
+只有 Worker 已启动后的连接失败或运行中断才使用数据库轮询兜底。
+
 后端容器固定 `APP_ENV=local-container` 和 `LOCAL_DATA_ROOT=/data`；关系数据进入 `postgres-data` 卷，附件进入可写的 `qa-data:/data` 卷。PostgreSQL 只在内部网络暴露 `5432`，不映射到宿主机。不要改成 `localhost`、IP、其他端口或任意远程主机，也不要把 `.env`、真实数据库密码或 Provider Secret 提交到 Git。
 
-当前机器没有 Docker，上述 PostgreSQL profile 尚未实机运行验证。现有测试只证明配置边界、共享 SQLAlchemy 持久化逻辑、Alembic/ORM 的 PostgreSQL 方言和 readiness 分支；具备 Docker 后仍要从空卷补做迁移、CRUD、流水线重启恢复和探针故障测试。无论选择哪个数据库，当前拓扑都仍是单 Worker。
+当前机器没有 Docker，上述 profile 尚未实机运行验证。现有测试只证明配置边界、
+共享 SQLAlchemy 持久化逻辑、Alembic/ORM 的 PostgreSQL 方言、claim/CAS 算法、
+进程入口和 readiness 分支；具备 Docker 后仍要从空卷补做 migration Job、CRUD、
+真实 PostgreSQL/RabbitMQ、多实例竞争、重复消息、进程强杀、租约过期、Broker/
+数据库中断与恢复。Web 当前仍固定单实例，不宣称 HA。
 
 ## 修改数据库
 
@@ -144,7 +171,9 @@ docker compose -f infra/compose.phase2.yaml --profile postgres up --build
 2. 新增有序 Alembic 迁移并人工检查约束、索引、默认值和 downgrade。
 3. 从空库执行 upgrade，执行 downgrade 后再次 upgrade。
 4. 同时检查 SQLite 与 PostgreSQL 方言，验证旧数据升级、应用重启恢复和 metadata 漂移。
-5. 若改动 PostgreSQL 路径，在具备 Docker 的隔离环境补真实迁移、事务回滚和 readiness；离线 DDL 不能代替集成测试。
+5. 确认 Compose 只由 migration Job 使用 upgrade 模式，Web/Worker/Scheduler/
+   Dispatcher 都是 verify-only。
+6. 若改动 PostgreSQL 路径，在具备 Docker 的隔离环境补真实迁移、事务回滚和 readiness；离线 DDL 不能代替集成测试。
 
 不要依赖应用启动时 `create_all` 管理持久数据库；Alembic 是两种 backend 的唯一结构所有者。当前没有 SQLite→PostgreSQL 数据搬迁工具，也没有多实例迁移互斥；不要通过切换 URL 搬运已有数据。详细说明见 [DATABASE.md](DATABASE.md)。
 
@@ -167,5 +196,8 @@ git diff -- .env.example docs backend frontend infra
 3. 有至少一个失败/重试/权限/边界测试。
 4. 不包含真实密钥、公司连接或线上数据。
 5. 文档说明当前一致性与生产差距。
+
+阶段六 B/C 的状态机、三段事务和练习顺序见
+[PHASE6B_6C_ORCHESTRATION.md](PHASE6B_6C_ORCHESTRATION.md)。
 
 提交前缀可使用 `feat:`、`fix:`、`docs:`、`test:`、`refactor:` 和 `chore:`；每个学习步骤尽量形成小而可回退的提交。

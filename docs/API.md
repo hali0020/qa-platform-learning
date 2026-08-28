@@ -99,10 +99,45 @@ GET 通常需要读权限，写方法需要对应管理权限。Service 还会�
 
 - 读取 `/runtime-status`，确认当前是 `local_lab`、`ci_lab_local` 还是 `self_hosted_lab`，以及目标范围是环回还是内部容器网络；
 - 对连接执行列表、创建、详情、修改和删除；
-- 测试连接，或触发一个已配置的流水线定义；
+- 测试连接，或把一个已配置定义的 Trigger Intent 提交到数据库；
 - 查询该连接的运行记录、刷新/读取运行并取消。
 
-连接 API 不接受任意 Secret 值，数据库只保存使用 `QA_PROVIDER_SECRET_` 前缀且进入显式 allowlist 的引用名称。默认 `env_local` 从本进程环境读取；显式选择 `vault_local_container` 后只能异步 GET 自建 `vault:8200` 的固定 `qa-platform/providers` 文档字段。`local_lab` 模式下 Local 连接不访问网络，所有其他 Provider 被硬拒绝。`ci_lab_local` 只允许 `learning_ci`，其连接必须使用空 `base_url`、空 config、固定定义引用和 `QA_PROVIDER_SECRET_CI_LAB`；后端根据运行环境选择代码固定的环回或容器 IP。`self_hosted_lab` 只面向我们自建的 Jenkins/GitLab/BK-CI 实例，并要求所有权确认、连接启用以及精确 host/port/CIDR/Secret allowlist 同时满足。不存在任意 external/public 模式。
+阶段六 B/C 的编排接口：
+
+| 方法 | 路径 | 用途 |
+| --- | --- | --- |
+| GET | `/integrations/connections/trigger-intents/all` | 查看安全的 Trigger Intent 状态 |
+| POST | `/integrations/connections/trigger-intents/dispatch-one` | SQLite 源码教学中手工 claim/分发一条；Compose 使用独立 Dispatcher |
+| POST | `/integrations/connections/{connection_id}/runs/{run_id}/gate-decisions` | 具有 `pipeline.approve` 的非触发人幂等批准/拒绝质量门禁 |
+| GET/POST | `/integrations/connections/{connection_id}/runs/{run_id}/artifacts` | 列出或上传测试报告/Artifact |
+| GET | `/integrations/connections/{connection_id}/runs/{run_id}/artifacts/{artifact_id}/content` | 校验元数据后安全下载 ready 内容 |
+| DELETE | `/integrations/connections/{connection_id}/runs/{run_id}/artifacts/{artifact_id}` | 以 quarantine/restore 补偿语义软删除 |
+
+触发返回 `202` 时只表示 Run 与 Intent 已提交，不表示 CI 已接受。专用 Dispatcher
+随后 claim Intent、提交事务、在事务外执行 Provider HTTP，再以租约 token/version
+结算。可重试失败进入 `retry_wait`，无法确认远端结果时进入 `unknown` 并标记
+`reconciliation_required`。Learning CI 重试复用相同 `Idempotency-Key`。
+
+连接 API 不接受任意 Secret 值，数据库只保存使用 `QA_PROVIDER_SECRET_` 前缀且进入显式 allowlist 的引用名称。默认 `env_local` 从本进程环境读取；显式选择 `vault_local_container` 后只能异步 GET 自建 `vault:8200` 的固定 `qa-platform/providers` 文档字段。`local_lab` 模式下 Local 连接不访问网络，所有其他 Provider 被硬拒绝。`ci_lab_local` 只允许 `learning_ci`，其连接必须使用空 `base_url`、空 config、固定定义引用和 `QA_PROVIDER_SECRET_CI_LAB`；Webhook 练习另用不可复用的 `QA_PROVIDER_SECRET_CI_LAB_WEBHOOK`。后端根据运行环境选择代码固定的环回或容器 IP。`self_hosted_lab` 只面向我们自建的 Jenkins/GitLab/BK-CI 实例，并要求所有权确认、连接启用以及精确 host/port/CIDR/Secret allowlist 同时满足。不存在任意 external/public 模式。
+
+Provider Artifact 状态为 `pending/ready/failed/deleted`，返回大小、SHA-256、错误码
+与审计归属，不返回 storage key。只有 ready 可下载。`kind=test_report` 只接受经过
+有界、安全校验的 UTF-8 JSON 或根节点为 `testsuite(s)` 的 JUnit XML；
+`kind=artifact` 使用通用附件类型规则，普通 XML 只要求安全、结构有效，不强制 JUnit
+根节点。所有 XML 均拒绝 DTD/实体声明并受上传大小与节点数上限约束。所有下载均使用
+`nosniff`、sandbox 和 `no-store` 等响应头。
+
+### 独立 Learning CI Webhook 接收 API
+
+`POST /webhooks/learning-ci/{connection_id}` 是机器接口，不使用浏览器 Session 或
+CSRF。它要求原始 Header `X-QA-Webhook-Event-ID`、
+`X-QA-Webhook-Timestamp`、`X-QA-Webhook-Signature`，先限制 16 KiB 原始 body，再用
+独立 HMAC Secret 校验固定五分钟时间窗。相同事件 ID/相同 body 返回 duplicate；同
+ID/不同摘要冲突。sequence 旧值、缺口、occurred-at 回退或终态回退不会覆盖新状态，
+必要时标记 `reconciliation_required` 交给轮询对账。
+
+CI Lab 当前没有主动 webhook delivery Worker；这个端点及其自动化测试只证明独立
+接收链路，不代表 Lab 已主动推送。
 
 ### 独立 Learning CI Lab 机器 API
 
@@ -115,6 +150,7 @@ CI Lab 是 `127.0.0.1:23020`（容器内固定 `172.30.60.2:8080`）上的另一
 | POST | `/api/v1/definitions/{definition}/runs` | 携带 `Idempotency-Key` 触发运行 |
 | GET | `/api/v1/runs/{run_id}` | 物化并读取运行/Stage/Job 状态 |
 | POST | `/api/v1/runs/{run_id}/cancel` | 幂等取消非终态运行 |
+| POST | `/api/v1/runs/{run_id}/gate-decisions` | 对等待中的固定质量门禁做幂等批准/拒绝 |
 
 该 API 不提供 OpenAPI UI、任意 URL、Shell、动态 Definition 或凭据回显。相同幂等键与相同输入返回同一 Run；同一个键配不同输入返回 `409`。详细契约见 [PHASE6_CI_LAB.md](PHASE6_CI_LAB.md)。
 
@@ -126,7 +162,13 @@ CI Lab 是 `127.0.0.1:23020`（容器内固定 `172.30.60.2:8080`）上的另一
 | `/automation/devices` | 注册/查询/修改设备、Agent 心跳、按能力租用、开始/续租/释放 |
 | `/automation/schedules` | CRUD、手动执行、计算一次 due tick、查看 fire 历史 |
 
-Worker 和 Agent 操作使用一次性租约 Token，响应中的 Token 只应保存在调用方内存，数据库存摘要。设备申请和续租还必须提交对应任务租约 Token，且设备租约不会超过任务租约有效期。`tick` 是教学用显式驱动端点；当前没有把 Web 进程伪装成高可用生产 Scheduler。
+任务入队会在同一事务写入 `automation_task_wakeup_outbox`。只读
+`GET /automation/tasks/wakeup-outbox` 暴露安全投递元数据，不返回任务 payload 或
+租约摘要。Compose 的独立 Outbox Dispatcher 才持有 RabbitMQ publisher；Web 的
+Broker 固定关闭。RabbitMQ 消息是固定无业务内容提示，Worker 仍从 PostgreSQL
+claim，并用定时数据库轮询兜底。
+
+Worker 和 Agent 操作使用一次性租约 Token，响应中的 Token 只应保存在调用方内存，数据库存摘要。设备申请和续租还必须提交对应任务租约 Token，且设备租约不会超过任务租约有效期。`tick` 是 SQLite 单进程教学用显式驱动端点；Compose 使用独立 PostgreSQL Scheduler 的 `SKIP LOCKED` claim、数据库时钟、事务外 Cron 计算和 CAS finalize。当前 Web 仍保持单实例，不宣称高可用。
 
 ## 健康检查与指标
 

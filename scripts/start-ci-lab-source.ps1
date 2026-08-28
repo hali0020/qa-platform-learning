@@ -158,6 +158,7 @@ $ManagedVariables = @(
     "CORS_ORIGINS",
     "DATABASE_RUNTIME_MODE",
     "DATABASE_URL",
+    "DATABASE_SCHEMA_MODE",
     "LOCAL_DATA_ROOT",
     "BROKER_RUNTIME_MODE",
     "BROKER_URL",
@@ -189,6 +190,7 @@ $ManagedVariables = @(
     "PROVIDER_ALLOW_LOOPBACK_HTTP",
     "PROVIDER_SECRET_ENV_ALLOWLIST",
     "QA_PROVIDER_SECRET_CI_LAB",
+    "QA_PROVIDER_SECRET_CI_LAB_WEBHOOK",
     "CI_LAB_DATABASE_PATH",
     "CI_LAB_MACHINE_TOKEN_FILE"
 )
@@ -201,6 +203,7 @@ foreach ($Name in $ManagedVariables) {
 }
 
 $MachineToken = $null
+$WebhookSecret = $null
 $LabProcess = $null
 try {
     New-Item -ItemType Directory -Path $DataRoot -Force | Out-Null
@@ -220,6 +223,19 @@ try {
     }
     finally {
         [Array]::Clear($RandomBytes, 0, $RandomBytes.Length)
+    }
+
+    $WebhookRandomBytes = [Security.Cryptography.RandomNumberGenerator]::GetBytes(32)
+    try {
+        $WebhookSecret = [Convert]::ToBase64String($WebhookRandomBytes).`
+            Replace('+', '-').Replace('/', '_').TrimEnd('=')
+    }
+    finally {
+        [Array]::Clear(
+            $WebhookRandomBytes,
+            0,
+            $WebhookRandomBytes.Length
+        )
     }
 
     $TokenStream = [IO.File]::Open(
@@ -250,6 +266,7 @@ try {
         CORS_ORIGINS = "http://127.0.0.1:5173,http://localhost:5173"
         DATABASE_RUNTIME_MODE = "sqlite_local"
         DATABASE_URL = $QaDatabaseUrl
+        DATABASE_SCHEMA_MODE = "verify"
         LOCAL_DATA_ROOT = $DataRoot
         BROKER_RUNTIME_MODE = "disabled_local"
         BROKER_URL = ""
@@ -279,8 +296,11 @@ try {
         PROVIDER_ALLOWED_PORTS = "443"
         PROVIDER_ALLOWED_NETWORKS = ""
         PROVIDER_ALLOW_LOOPBACK_HTTP = "false"
-        PROVIDER_SECRET_ENV_ALLOWLIST = "QA_PROVIDER_SECRET_CI_LAB"
+        PROVIDER_SECRET_ENV_ALLOWLIST = (
+            "QA_PROVIDER_SECRET_CI_LAB,QA_PROVIDER_SECRET_CI_LAB_WEBHOOK"
+        )
         QA_PROVIDER_SECRET_CI_LAB = $MachineToken
+        QA_PROVIDER_SECRET_CI_LAB_WEBHOOK = $WebhookSecret
         CI_LAB_DATABASE_PATH = $CiDatabasePath
         CI_LAB_MACHINE_TOKEN_FILE = $TokenPath
     }
@@ -387,6 +407,7 @@ finally {
             }
             finally {
                 $MachineToken = $null
+                $WebhookSecret = $null
                 foreach ($Name in $ManagedVariables) {
                     [Environment]::SetEnvironmentVariable(
                         $Name,

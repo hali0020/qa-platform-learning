@@ -68,10 +68,22 @@
 - Prometheus 标签不得包含用户/任务/设备/项目 ID、URL、文件名或异常正文。
 - `/metrics` 在生产必须只对监控网络开放。
 - 非本机 HTTP 必须使用 Secure Cookie 和 TLS；容器的 `0.0.0.0` 监听只能通过宿主机环回端口或受控入口发布。
-- SQLite 默认模式和可选 PostgreSQL 模式都仍是单应用进程教学拓扑；进程内锁、本地附件和跨 Repository 提交尚不支持多实例生产。
-- CI Lab 使用独立单进程 SQLite，固定 Definition 不执行用户代码；它的 Bearer/幂等/状态机边界不等于 TLS、分布式 Executor 或高可用。QA 端触发当前仍跨越数据库事务与 HTTP，后续必须以 outbox/对账缩短事务并处理未知结果。
+- Compose Web 当前固定单实例。任务、Scheduler、Provider Intent 和 task wake-up
+  outbox 的特定路径已有数据库 claim/CAS，但进程内业务锁、本机附件与跨 Repository
+  提交仍未完成多 Web 审计。
+- CI Lab 使用独立单进程 SQLite，固定 Definition 不执行用户代码；它的
+  Bearer/幂等/质量门禁不等于 TLS、分布式 Executor 或高可用。QA 端已用持久 Trigger
+  Intent + 独立 Dispatcher 把 Provider HTTP 移出数据库事务，并以未知状态/轮询对账
+  收敛，但真实进程崩溃窗尚未容器验收。
+- CI Lab 的出站 Bearer 与入站 Webhook HMAC Secret 分离。独立 Webhook 接收端不使用
+  浏览器 Session/CSRF，先限制 16 KiB 原始 body，再做五分钟时间窗、常量时间 HMAC、
+  事件唯一键和 sequence reducer；CI Lab 当前没有主动 delivery Worker。
+- Web 不持有 RabbitMQ 连接或凭据。任务和 wake-up outbox 同事务提交，独立
+  Dispatcher 只发布无业务内容提示，数据库 claim 才能授予 Worker 执行权。
 - 当前机器没有 Docker，因此 PostgreSQL 容器尚未做真实启动、迁移、重启恢复和 readiness 联调；已有的是配置边界、PostgreSQL 方言迁移生成与 ORM 编译等离线验证。
-- 尚无 SQLite 与 PostgreSQL 之间的数据搬迁工具，也没有多实例并发、迁移互斥或故障切换保证；不能因为已有 Compose profile 就宣称已生产化。
+- 尚无 SQLite 与 PostgreSQL 之间的数据搬迁工具；一次性 migration Job 已编码，但
+  没有真实多实例、备份恢复或故障切换保证。不能因为已有 Compose profile 就宣称
+  已生产化或 HA。
 
 ## 上生产前的安全门槛
 

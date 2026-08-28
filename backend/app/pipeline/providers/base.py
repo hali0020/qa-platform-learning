@@ -1,6 +1,11 @@
 from typing import Protocol, runtime_checkable
 
-from app.pipeline.providers.models import ProviderKind, ProviderRun, ProviderTriggerRequest
+from app.pipeline.providers.models import (
+    ProviderGateDecisionRequest,
+    ProviderKind,
+    ProviderRun,
+    ProviderTriggerRequest,
+)
 
 
 @runtime_checkable
@@ -14,6 +19,12 @@ class PipelineProvider(Protocol):
     async def get(self, external_id: str) -> ProviderRun: ...
 
     async def cancel(self, external_id: str) -> ProviderRun: ...
+
+    async def decide_gate(
+        self,
+        external_id: str,
+        request: ProviderGateDecisionRequest,
+    ) -> ProviderRun: ...
 
     async def aclose(self) -> None: ...
 

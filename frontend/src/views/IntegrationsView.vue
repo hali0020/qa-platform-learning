@@ -2,11 +2,14 @@
 import { computed, onMounted, ref, watch } from "vue";
 import { ApiError, qaApi } from "@/api";
 import type {
+  ProviderArtifactKind,
   ProviderConnection,
   ProviderConnectionCreate,
   ProviderKind,
   ProviderRuntimeStatus,
   ProviderRun,
+  ProviderRunArtifact,
+  ProviderTriggerIntent,
 } from "@/api";
 import { useAuthSession } from "@/auth/session";
 import PageHeader from "@/components/PageHeader.vue";
@@ -14,10 +17,15 @@ import StatusBadge from "@/components/StatusBadge.vue";
 
 const auth = useAuthSession();
 const canManage = computed(() => auth.can("integrations.manage"));
+const canApprove = computed(() => auth.can("pipeline.approve"));
 const connections = ref<ProviderConnection[]>([]);
 const runtimeStatus = ref<ProviderRuntimeStatus | null>(null);
 const selectedId = ref("");
 const runs = ref<ProviderRun[]>([]);
+const triggerIntents = ref<ProviderTriggerIntent[]>([]);
+const artifactsByRun = ref<Record<string, ProviderRunArtifact[]>>({});
+const expandedRunId = ref<string | null>(null);
+const artifactKindByRun = ref<Record<string, ProviderArtifactKind>>({});
 const loading = ref(true);
 const busy = ref(false);
 const errorMessage = ref("");
@@ -32,6 +40,7 @@ const form = ref({
   baseUrl: "",
   definitionRef: "local-quality-gate",
   secretEnvVar: "",
+  webhookSecretEnvVar: "",
   enabled: true,
   username: "",
   jobName: "",
@@ -57,6 +66,27 @@ const runLabels: Record<string, string> = {
   failed: "失败",
   cancelled: "已取消",
   unknown: "未知",
+};
+const dispatchLabels: Record<string, string> = {
+  pending: "待分发",
+  claimed: "已领取",
+  dispatching: "分发中",
+  dispatched: "已分发",
+  succeeded: "分发成功",
+  retry_wait: "等待重试",
+  failed: "分发失败",
+  unknown: "结果未知",
+  cancelled: "已取消",
+};
+const gateLabels: Record<string, string> = {
+  not_required: "无需门禁",
+  evaluating: "评估中",
+  waiting_approval: "等待审批",
+  approved: "已批准",
+  rejected: "已驳回",
+  passed: "已通过",
+  failed: "未通过",
+  cancelled: "已取消",
 };
 
 const selected = computed(
@@ -144,6 +174,9 @@ function resetForm(kind: ProviderKind = "local") {
         ? "local-quality-gate"
         : "",
     secretEnvVar: kind === "learning_ci" ? "QA_PROVIDER_SECRET_CI_LAB" : "",
+    webhookSecretEnvVar: kind === "learning_ci"
+      ? "QA_PROVIDER_SECRET_CI_LAB_WEBHOOK"
+      : "",
     enabled: kind === "local",
     username: "",
     jobName: "",
@@ -171,6 +204,7 @@ function editConnection(item: ProviderConnection) {
     baseUrl: item.base_url ?? "",
     definitionRef: item.definition_ref,
     secretEnvVar: item.secret_env_var ?? "",
+    webhookSecretEnvVar: item.webhook_secret_env_var ?? "",
     enabled: item.enabled,
     username: item.config.username ?? "",
     jobName: item.config.job_name ?? "",
@@ -239,6 +273,14 @@ async function loadConnections() {
   }
 }
 
+async function loadTriggerIntents() {
+  try {
+    triggerIntents.value = await qaApi.listProviderTriggerIntents();
+  } catch (error) {
+    errorMessage.value = readableError(error);
+  }
+}
+
 async function loadRuns() {
   const connectionId = selectedId.value;
   const requestVersion = ++runsRequestVersion;
@@ -258,7 +300,7 @@ async function loadRuns() {
 
 async function refresh() {
   clearFeedback();
-  await loadConnections();
+  await Promise.all([loadConnections(), loadTriggerIntents()]);
   await loadRuns();
 }
 
@@ -284,6 +326,14 @@ async function saveConnection() {
       errorMessage.value = "Learning CI 只能使用固定的 QA_PROVIDER_SECRET_CI_LAB 引用";
       return;
     }
+    if (
+      data.kind === "learning_ci" &&
+      data.webhookSecretEnvVar.trim() &&
+      data.webhookSecretEnvVar.trim() !== "QA_PROVIDER_SECRET_CI_LAB_WEBHOOK"
+    ) {
+      errorMessage.value = "Learning CI Webhook 只能使用固定的 QA_PROVIDER_SECRET_CI_LAB_WEBHOOK 引用";
+      return;
+    }
     if (Object.values(connectionConfig()).some((value) => !value)) {
       errorMessage.value = "请补齐当前 Provider 的必填配置";
       return;
@@ -298,6 +348,9 @@ async function saveConnection() {
       definition_ref: definitionRef,
       config: connectionConfig(),
       secret_env_var: requiresNetworkSecret.value ? data.secretEnvVar.trim() : null,
+      webhook_secret_env_var: data.kind === "learning_ci"
+        ? data.webhookSecretEnvVar.trim() || null
+        : null,
       enabled: requiresNetworkSecret.value && !runtimeAllowsFormKind.value
         ? false
         : data.enabled,
@@ -312,6 +365,7 @@ async function saveConnection() {
         definition_ref: payload.definition_ref,
         config: payload.config,
         secret_env_var: payload.secret_env_var,
+        webhook_secret_env_var: payload.webhook_secret_env_var,
         enabled: payload.enabled,
         version: current.version,
       });
@@ -386,15 +440,154 @@ async function triggerConnection() {
     });
     if (selectedId.value === connectionId) {
       runs.value.unshift(created);
-      message.value = item.kind === "local"
-        ? "已创建本地模拟运行，没有访问外部网络"
-        : "已触发自建实验室运行，并受四类白名单与内部网络保护";
+      await loadTriggerIntents();
+      message.value = "触发意图已写入本机 Outbox；尚未调用 Provider，请点击“分发一条”学习异步分发。";
     }
   } catch (error) {
     if (selectedId.value === connectionId) errorMessage.value = readableError(error);
   } finally {
     busy.value = false;
   }
+}
+
+async function dispatchOne() {
+  if (!canManage.value || loading.value || busy.value) return;
+  busy.value = true;
+  clearFeedback();
+  try {
+    const dispatched = await qaApi.dispatchOneProviderTrigger();
+    await Promise.all([loadTriggerIntents(), loadRuns()]);
+    message.value = dispatched
+      ? `已分发运行 #${shortId(dispatched.id)}；远端调用发生在数据库事务之外。`
+      : "当前没有可领取的触发意图。";
+  } catch (error) {
+    errorMessage.value = readableError(error);
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function decideGate(run: ProviderRun, decision: "approve" | "reject") {
+  const item = selected.value;
+  if (!item || !canApprove.value || run.quality_gate_status !== "waiting_approval" || busy.value) return;
+  const comment = window.prompt(
+    decision === "approve" ? "批准说明（可留空）" : "驳回原因（建议填写）",
+    "",
+  );
+  if (comment === null) return;
+  busy.value = true;
+  clearFeedback();
+  try {
+    const updated = await qaApi.decideProviderQualityGate(item.id, run.id, {
+      event_id: `web-gate-${crypto.randomUUID()}`,
+      decision,
+      comment: comment.trim(),
+    });
+    replaceRun(updated);
+    message.value = decision === "approve" ? "质量门禁已批准并留下审计记录" : "质量门禁已驳回并留下审计记录";
+  } catch (error) {
+    errorMessage.value = readableError(error);
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function toggleArtifacts(run: ProviderRun) {
+  if (expandedRunId.value === run.id) {
+    expandedRunId.value = null;
+    return;
+  }
+  expandedRunId.value = run.id;
+  artifactKindByRun.value[run.id] ??= "test_report";
+  await loadArtifacts(run);
+}
+
+async function loadArtifacts(run: ProviderRun) {
+  const item = selected.value;
+  if (!item) return;
+  try {
+    artifactsByRun.value[run.id] = await qaApi.listProviderRunArtifacts(item.id, run.id);
+  } catch (error) {
+    errorMessage.value = readableError(error);
+  }
+}
+
+async function uploadArtifact(run: ProviderRun, event: Event) {
+  const item = selected.value;
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  if (!item || !file || !canManage.value || busy.value) return;
+  busy.value = true;
+  clearFeedback();
+  try {
+    const created = await qaApi.uploadProviderRunArtifact(
+      item.id,
+      run.id,
+      artifactKindByRun.value[run.id] ?? "test_report",
+      file,
+    );
+    artifactsByRun.value[run.id] = [
+      created,
+      ...(artifactsByRun.value[run.id] ?? []).filter((entry) => entry.id !== created.id),
+    ];
+    message.value = "文件已通过 Storage Port 保存并完成 SHA-256 校验；页面未接触存储内部键。";
+  } catch (error) {
+    errorMessage.value = readableError(error);
+  } finally {
+    input.value = "";
+    busy.value = false;
+  }
+}
+
+async function downloadArtifact(run: ProviderRun, artifact: ProviderRunArtifact) {
+  const item = selected.value;
+  if (!item || artifact.status !== "ready" || busy.value) return;
+  busy.value = true;
+  clearFeedback();
+  try {
+    const result = await qaApi.downloadProviderRunArtifact(item.id, run.id, artifact.id);
+    const url = URL.createObjectURL(result.blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = result.filename ?? artifact.original_filename;
+    anchor.click();
+    URL.revokeObjectURL(url);
+    message.value = "Artifact 已从本机存储下载";
+  } catch (error) {
+    errorMessage.value = readableError(error);
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function deleteArtifact(run: ProviderRun, artifact: ProviderRunArtifact) {
+  const item = selected.value;
+  if (!item || !canManage.value || busy.value) return;
+  if (!window.confirm(`删除 Artifact“${artifact.original_filename}”？`)) return;
+  busy.value = true;
+  clearFeedback();
+  try {
+    const deleted = await qaApi.deleteProviderRunArtifact(item.id, run.id, artifact.id);
+    artifactsByRun.value[run.id] = (artifactsByRun.value[run.id] ?? []).map((entry) =>
+      entry.id === deleted.id ? deleted : entry,
+    );
+    message.value = "Artifact 已标记删除并完成存储补偿";
+  } catch (error) {
+    errorMessage.value = readableError(error);
+  } finally {
+    busy.value = false;
+  }
+}
+
+function formatBytes(value: number | null): string {
+  if (value === null) return "—";
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KiB`;
+  return `${(value / (1024 * 1024)).toFixed(1)} MiB`;
+}
+
+function connectionName(connectionId: string): string {
+  return connections.value.find((item) => item.id === connectionId)?.name ?? shortId(connectionId);
 }
 
 async function refreshRun(run: ProviderRun) {
@@ -449,7 +642,11 @@ watch(
     if (!editingId.value && kind !== previous) resetForm(kind);
   },
 );
-watch(selectedId, () => void loadRuns());
+watch(selectedId, () => {
+  expandedRunId.value = null;
+  artifactsByRun.value = {};
+  void loadRuns();
+});
 onMounted(() => void refresh());
 </script>
 
@@ -508,6 +705,7 @@ onMounted(() => void refresh());
               <label v-if="requiresConfiguredBaseUrl" class="wide"><span>自建服务地址</span><input v-model="form.baseUrl" type="url" placeholder="https://ci.lab.test" /></label>
               <p v-else class="wide fixed-target">Learning CI 目标由后端固定：宿主机 127.0.0.1:23020，容器内 172.30.60.2:8080。</p>
               <label class="wide secret-name"><span>凭据环境变量名（不是 Token）</span><input v-model="form.secretEnvVar" autocomplete="off" placeholder="QA_PROVIDER_SECRET_JENKINS_TOKEN" /><small>必须使用专用前缀并加入服务端 allowlist；这里只保存变量名，值由运维注入后端进程。</small></label>
+              <label v-if="form.kind === 'learning_ci'" class="wide secret-name"><span>Webhook 验签变量名（不是 Secret 值）</span><input v-model="form.webhookSecretEnvVar" autocomplete="off" placeholder="QA_PROVIDER_SECRET_CI_LAB_WEBHOOK" /><small>独立于触发凭据，用于时间戳 + HMAC 回调验签；页面永远不会读取或显示值。</small></label>
             </template>
             <template v-if="form.kind === 'jenkins'">
               <label><span>Jenkins 用户名</span><input v-model="form.username" /></label>
@@ -535,6 +733,7 @@ onMounted(() => void refresh());
         <div><small>SELECTED · {{ kindLabels[selected.kind] }}</small><h2>{{ selected.name }}</h2><p><code>{{ selected.definition_ref }}</code> · 更新于 {{ dateTime(selected.updated_at) }}</p></div>
         <div class="selected-actions">
           <StatusBadge :status="selected.secret_configured || selected.kind === 'local' ? 'ready' : 'disabled'" :label="selected.kind === 'local' ? '无需凭据' : selected.secret_configured ? '凭据环境已就绪' : '环境变量未配置'" />
+          <StatusBadge v-if="selected.kind === 'learning_ci'" :status="selected.webhook_secret_configured ? 'ready' : 'disabled'" :label="selected.webhook_secret_configured ? 'Webhook 验签已就绪' : 'Webhook 验签未配置'" />
           <button v-if="canManage" class="button" :disabled="loading || busy" @click="editConnection(selected)">编辑</button>
           <button v-if="canManage" class="button danger-button" :disabled="loading || busy" @click="removeConnection(selected)">删除</button>
           <button v-if="canManage" class="button" :disabled="loading || busy || (selected.kind !== 'local' && (!selected.enabled || !runtimeAllowsKind(selected.kind)))" @click="testConnection(selected)">静态测试</button>
@@ -550,19 +749,70 @@ onMounted(() => void refresh());
       </p>
     </article>
 
+    <article class="panel outbox-panel">
+      <div class="panel-title">
+        <div><small>TRANSACTIONAL OUTBOX</small><h2>异步触发意图</h2><p>API 只在事务内保存意图；Dispatcher 领取后才调用 Provider，避免长事务包住 HTTP。</p></div>
+        <div class="outbox-actions"><b>{{ triggerIntents.filter((item) => ['pending','retry_wait','claimed'].includes(item.status)).length }} 待处理</b><button v-if="canManage" class="button primary" :disabled="loading || busy" @click="dispatchOne">分发一条</button></div>
+      </div>
+      <div class="table-wrap compact-table">
+        <table>
+          <thead><tr><th>意图</th><th>连接 / 运行</th><th>状态</th><th>尝试</th><th>可用时间</th><th>错误码</th></tr></thead>
+          <tbody>
+            <tr v-for="intent in triggerIntents.slice(0, 20)" :key="intent.id">
+              <td><code>#{{ shortId(intent.id) }}</code></td>
+              <td><b>{{ connectionName(intent.connection_id) }}</b><small>#{{ shortId(intent.run_id) }}</small></td>
+              <td><StatusBadge :status="intent.status" :label="dispatchLabels[intent.status] ?? intent.status" /></td>
+              <td>{{ intent.attempts }} / {{ intent.max_attempts }}</td>
+              <td>{{ dateTime(intent.available_at) }}</td>
+              <td><code>{{ intent.last_error_code ?? '—' }}</code></td>
+            </tr>
+            <tr v-if="!triggerIntents.length"><td colspan="6" class="empty compact">暂无触发意图；提交一次运行即可观察 Outbox。</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </article>
+
     <div class="table-wrap run-table">
       <table>
-        <thead><tr><th>运行</th><th>状态</th><th>外部标识</th><th>关联 ID</th><th>更新时间</th><th>操作</th></tr></thead>
+        <thead><tr><th>运行</th><th>Provider 状态</th><th>Outbox</th><th>质量门禁</th><th>外部标识</th><th>更新时间</th><th>操作</th></tr></thead>
         <tbody>
-          <tr v-for="run in runs" :key="run.id">
-            <td><code>#{{ shortId(run.id) }}</code><b>{{ run.message ?? "Provider 运行" }}</b></td>
-            <td><StatusBadge :status="run.status" :label="runLabels[run.status] ?? run.status" /><small class="raw">{{ run.raw_status }}</small></td>
-            <td><a v-if="safeRunUrl(run.web_url)" :href="safeRunUrl(run.web_url) ?? undefined" target="_blank" rel="noopener noreferrer">{{ run.external_id }}</a><code v-else>{{ run.external_id }}</code></td>
-            <td><code>{{ run.correlation_id ?? "—" }}</code></td>
-            <td>{{ dateTime(run.updated_at) }}</td>
-            <td class="row-actions"><button :disabled="loading || busy" @click="refreshRun(run)">刷新</button><button v-if="canManage && ['queued','running'].includes(run.status)" :disabled="loading || busy" @click="cancelRun(run)">取消</button></td>
-          </tr>
-          <tr v-if="!runs.length"><td colspan="6" class="empty compact">选择连接后查看运行历史</td></tr>
+          <template v-for="run in runs" :key="run.id">
+            <tr :class="{ 'needs-reconcile': run.reconciliation_required }">
+              <td><code>#{{ shortId(run.id) }}</code><b>{{ run.message ?? "Provider 运行" }}</b><small>发起人：{{ run.triggered_by_name }}</small><strong v-if="run.reconciliation_required" class="reconcile-flag">待对账</strong></td>
+              <td><StatusBadge :status="run.status" :label="runLabels[run.status] ?? run.status" /><small class="raw">{{ run.raw_status }} · seq {{ run.last_provider_sequence }}</small></td>
+              <td><StatusBadge :status="run.dispatch_status" :label="dispatchLabels[run.dispatch_status] ?? run.dispatch_status" /></td>
+              <td><StatusBadge :status="run.quality_gate_status" :label="gateLabels[run.quality_gate_status] ?? run.quality_gate_status" /><small v-if="run.approvals.length" class="raw">{{ run.approvals.at(-1)?.actor_name }} · {{ run.approvals.at(-1)?.decision === 'approve' ? '批准' : '驳回' }}</small></td>
+              <td><a v-if="safeRunUrl(run.web_url)" :href="safeRunUrl(run.web_url) ?? undefined" target="_blank" rel="noopener noreferrer">{{ run.external_id ?? '—' }}</a><code v-else>{{ run.external_id ?? '尚未分发' }}</code></td>
+              <td>{{ dateTime(run.updated_at) }}</td>
+              <td class="row-actions">
+                <button :disabled="loading || busy" @click="refreshRun(run)">刷新</button>
+                <button :disabled="loading || busy" @click="toggleArtifacts(run)">{{ expandedRunId === run.id ? '收起文件' : 'Artifact' }}</button>
+                <button v-if="canApprove && run.quality_gate_status === 'waiting_approval'" class="approve" :disabled="loading || busy" @click="decideGate(run, 'approve')">批准</button>
+                <button v-if="canApprove && run.quality_gate_status === 'waiting_approval'" class="reject" :disabled="loading || busy" @click="decideGate(run, 'reject')">驳回</button>
+                <button v-if="canManage && ['queued','running'].includes(run.status)" :disabled="loading || busy" @click="cancelRun(run)">取消</button>
+              </td>
+            </tr>
+            <tr v-if="expandedRunId === run.id" class="artifact-row">
+              <td colspan="7">
+                <div class="artifact-header">
+                  <div><b>测试报告与构建产物</b><small>只展示安全元数据与摘要，不显示 Storage Key。</small></div>
+                  <div v-if="canManage" class="artifact-upload">
+                    <select v-model="artifactKindByRun[run.id]"><option value="test_report">测试报告</option><option value="artifact">普通产物</option></select>
+                    <label class="button"><input type="file" :disabled="busy" @change="uploadArtifact(run, $event)" />选择并上传</label>
+                  </div>
+                </div>
+                <div class="artifact-list">
+                  <div v-for="artifact in (artifactsByRun[run.id] ?? []).filter((entry) => entry.status !== 'deleted')" :key="artifact.id">
+                    <span><b>{{ artifact.original_filename }}</b><small>{{ artifact.kind === 'test_report' ? '测试报告' : '普通产物' }} · {{ formatBytes(artifact.size_bytes) }} · {{ artifact.status }}</small></span>
+                    <code :title="artifact.sha256 ?? ''">SHA-256 {{ artifact.sha256?.slice(0, 12) ?? '等待校验' }}…</code>
+                    <span class="row-actions"><button :disabled="busy || artifact.status !== 'ready'" @click="downloadArtifact(run, artifact)">下载</button><button v-if="canManage" :disabled="busy" @click="deleteArtifact(run, artifact)">删除</button></span>
+                  </div>
+                  <p v-if="!(artifactsByRun[run.id] ?? []).some((entry) => entry.status !== 'deleted')" class="empty compact">当前运行尚无 Artifact。</p>
+                </div>
+              </td>
+            </tr>
+          </template>
+          <tr v-if="!runs.length"><td colspan="7" class="empty compact">选择连接后查看运行历史</td></tr>
         </tbody>
       </table>
     </div>
@@ -572,6 +822,7 @@ onMounted(() => void refresh());
 <style scoped>
 .fixed-target{margin:0;padding:10px 12px;border:1px solid #dcebe4;border-radius:8px;color:#47705f;background:#f2faf6;font-size:9px;line-height:1.5}
 .notice.error{border-color:#efcaca;color:#a33c3c;background:#fff2f2}.integration-grid{display:grid;grid-template-columns:minmax(300px,.75fr) minmax(440px,1.25fr);gap:16px;align-items:start}.connection-list{padding:20px 0}.connection-list>.panel-title{padding:0 20px 10px}.connection-list>.panel-title>b{color:var(--green);font-size:18px}.connection-list>button{display:grid;grid-template-columns:34px 1fr auto;align-items:center;gap:10px;width:100%;padding:13px 18px;border:0;border-top:1px solid #edf1ef;color:inherit;background:transparent;text-align:left}.connection-list>button.active{background:#eff8f4;box-shadow:inset 3px 0 #35b77d}.connection-list button span:nth-child(2) b,.connection-list button span:nth-child(2) small{display:block}.connection-list button span:nth-child(2) b{font-size:10px}.connection-list button span:nth-child(2) small{max-width:260px;margin-top:4px;overflow:hidden;color:var(--muted);font-size:8px;text-overflow:ellipsis;white-space:nowrap}.provider-mark{display:grid;width:32px;height:32px;place-items:center;border-radius:9px;color:#277357;background:#e8f7f0;font-size:9px;font-weight:800}.compact{padding:28px 15px}.text-button{border:0;color:var(--green);background:transparent;font-size:9px}.editor fieldset{padding:0;border:0}.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.form-grid label,.trigger-box label{display:grid;gap:6px}.form-grid label>span,.trigger-box label>span{color:#64716c;font-size:9px;font-weight:700}.form-grid input,.form-grid select,.trigger-box input,.trigger-box textarea{width:100%;min-height:39px;padding:9px 10px;border:1px solid #d9e3de;border-radius:8px;background:#fff;outline:none}.form-grid input:focus,.form-grid select:focus,.trigger-box input:focus,.trigger-box textarea:focus{border-color:#74b99b;box-shadow:0 0 0 3px #edf8f3}.form-grid .wide{grid-column:1/-1}.secret-name{padding:11px;border:1px solid #e5dfc6;border-radius:9px;background:#fffaf0}.secret-name small{color:#92743a;font-size:8px;line-height:1.5}.enable-line{display:flex;align-items:center;gap:7px;margin:15px 0;color:#44534d;font-size:10px}.enable-line small{color:var(--muted)}button:disabled{cursor:not-allowed;opacity:.5}.read-only,.gate-hint{margin:13px 0 0;color:var(--muted);font-size:9px}.selected-panel{margin-top:16px}.selected-panel>header{display:flex;align-items:flex-start;justify-content:space-between;gap:15px;padding-bottom:15px;border-bottom:1px solid #edf1ef}.selected-panel header>div:first-child>small{color:var(--green);font-size:8px;letter-spacing:.1em}.selected-panel h2{margin:5px 0}.selected-panel p{margin:0;color:var(--muted);font-size:9px}.selected-actions{display:flex;align-items:center;gap:7px;flex-wrap:wrap;justify-content:flex-end}.danger-button{color:#b44343}.trigger-box{display:grid;grid-template-columns:minmax(140px,.45fr) minmax(260px,1fr) auto;align-items:end;gap:12px;padding-top:16px}.trigger-box textarea{resize:vertical;font-family:ui-monospace,Consolas,monospace;font-size:9px}.run-table{margin-top:16px}.run-table a{color:var(--green);font-weight:700}.run-table .raw{display:block;margin-top:5px;color:var(--muted);font-size:8px}.row-actions{white-space:nowrap}.row-actions button{margin-right:5px;padding:5px 7px;border:1px solid var(--line);border-radius:6px;color:#56645e;background:#fff;font-size:8px}
+.outbox-panel{margin-top:16px}.outbox-panel .panel-title{align-items:flex-start}.outbox-panel .panel-title p{max-width:700px;margin:5px 0 0;color:var(--muted);font-size:9px}.outbox-actions{display:flex;align-items:center;gap:10px}.outbox-actions>b{color:#8b6d24;font-size:9px}.compact-table{margin:14px -20px -20px}.compact-table td b,.compact-table td small,.run-table td>b,.run-table td>small{display:block}.compact-table td small,.run-table td>small{margin-top:4px;color:var(--muted);font-size:8px}.needs-reconcile{background:#fff9ec}.reconcile-flag{display:inline-block;margin-top:5px;padding:2px 5px;border-radius:4px;color:#9a641b;background:#fff0c7;font-size:8px}.row-actions .approve{color:#16724d;border-color:#a8d7c2}.row-actions .reject{color:#a33c3c;border-color:#e5bcbc}.artifact-row>td{padding:0;background:#f7faf8}.artifact-header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 18px;border-bottom:1px solid #e6eeea}.artifact-header b,.artifact-header small{display:block}.artifact-header small{margin-top:4px;color:var(--muted);font-size:8px}.artifact-upload{display:flex;align-items:center;gap:8px}.artifact-upload select{min-height:31px;padding:5px 8px;border:1px solid var(--line);border-radius:7px;background:#fff;font-size:9px}.artifact-upload label{font-size:8px}.artifact-upload input[type=file]{display:none}.artifact-list>div{display:grid;grid-template-columns:minmax(200px,1fr) minmax(170px,.6fr) auto;align-items:center;gap:12px;padding:11px 18px;border-bottom:1px solid #e9efec}.artifact-list span>b,.artifact-list span>small{display:block}.artifact-list span>small{margin-top:4px;color:var(--muted);font-size:8px}.artifact-list code{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 @media(max-width:1000px){.integration-grid{grid-template-columns:1fr}.trigger-box{grid-template-columns:1fr 1fr}.trigger-box .variables{grid-row:1/3}.trigger-box .button{grid-column:1}}
-@media(max-width:700px){.form-grid,.trigger-box{grid-template-columns:1fr}.trigger-box .variables,.trigger-box .button{grid-column:auto;grid-row:auto}.selected-panel>header{flex-direction:column}.selected-actions{justify-content:flex-start}.connection-list button span:nth-child(2) small{max-width:150px}}
+@media(max-width:700px){.form-grid,.trigger-box{grid-template-columns:1fr}.trigger-box .variables,.trigger-box .button{grid-column:auto;grid-row:auto}.selected-panel>header,.outbox-panel .panel-title,.artifact-header{flex-direction:column}.selected-actions{justify-content:flex-start}.connection-list button span:nth-child(2) small{max-width:150px}.artifact-list>div{grid-template-columns:1fr}.outbox-actions{align-self:stretch;justify-content:space-between}}
 </style>

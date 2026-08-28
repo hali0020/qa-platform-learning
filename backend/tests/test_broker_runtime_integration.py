@@ -16,7 +16,9 @@ def _sqlite_url(path: Path) -> str:
 
 
 @pytest.mark.asyncio
-async def test_committed_task_publishes_content_free_wakeup(tmp_path: Path) -> None:
+async def test_committed_task_publishes_durable_content_free_wakeup(
+    tmp_path: Path,
+) -> None:
     database = Database(_sqlite_url(tmp_path / "wakeup.db"))
     broker = FakeWakeupBroker()
     service = create_runtime_service(database, wakeup_publisher=broker)
@@ -34,6 +36,11 @@ async def test_committed_task_publishes_content_free_wakeup(tmp_path: Path) -> N
         assert broker.publish_count == 1
         assert await broker.wait(timeout=0) is True
         assert (await service.get_task(task.id)).id == task.id
+        outbox = await service.list_task_wakeup_outbox()
+        assert len(outbox) == 1
+        assert outbox[0].task_id == task.id
+        assert outbox[0].status == "published"
+        assert outbox[0].publish_attempts == 1
     finally:
         await broker.close()
         await database.shutdown()
@@ -58,13 +65,21 @@ async def test_broker_failure_cannot_roll_back_database_task(tmp_path: Path) -> 
         persisted = await service.get_task(task.id)
         assert persisted.status == "queued"
         assert persisted.payload == {"rows": []}
+        outbox = await service.list_task_wakeup_outbox()
+        assert len(outbox) == 1
+        assert outbox[0].task_id == task.id
+        assert outbox[0].status == "retry_wait"
+        assert outbox[0].publish_attempts == 1
+        assert outbox[0].last_error_code == "broker_publish_failed"
     finally:
         await broker.close()
         await database.shutdown()
 
 
 @pytest.mark.asyncio
-async def test_idempotent_replay_republishes_hint_for_recovery(tmp_path: Path) -> None:
+async def test_idempotent_replay_does_not_create_or_publish_a_second_fact(
+    tmp_path: Path,
+) -> None:
     database = Database(_sqlite_url(tmp_path / "replay-wakeup.db"))
     broker = FakeWakeupBroker()
     service = create_runtime_service(database, wakeup_publisher=broker)
@@ -80,7 +95,12 @@ async def test_idempotent_replay_republishes_hint_for_recovery(tmp_path: Path) -
         assert first_replayed is False
         assert replayed is True
         assert replay.id == first.id
-        assert broker.publish_count == 2
+        assert broker.publish_count == 1
+        outbox = await service.list_task_wakeup_outbox()
+        assert len(outbox) == 1
+        assert outbox[0].task_id == first.id
+        assert outbox[0].generation == 0
+        assert outbox[0].status == "published"
     finally:
         await broker.close()
         await database.shutdown()

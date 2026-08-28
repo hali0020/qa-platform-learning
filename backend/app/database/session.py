@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from alembic import command
-from alembic.config import Config
+from alembic.migration import MigrationContext
 from sqlalchemy import event
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import (
@@ -17,6 +17,13 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from app.core.config import validate_database_runtime_target
+from app.migrations import (
+    SCHEMA_MODE_UPGRADE,
+    SCHEMA_MODE_VERIFY,
+    build_alembic_config,
+    expected_schema_heads,
+    upgrade_schema,
+)
 
 
 class Database:
@@ -29,6 +36,7 @@ class Database:
         echo: bool = False,
         runtime_mode: str = "sqlite_local",
         app_env: str = "local",
+        schema_mode: str | None = None,
     ) -> None:
         # This check is deliberately repeated below Settings so direct callers
         # (CLI, tests, future workers) cannot bypass the database boundary.
@@ -40,6 +48,16 @@ class Database:
         self.url = url
         self.runtime_mode = runtime_mode
         self.app_env = app_env
+        selected_schema_mode = (
+            schema_mode
+            if schema_mode is not None
+            else os.environ.get("DATABASE_SCHEMA_MODE", SCHEMA_MODE_UPGRADE)
+        )
+        self.schema_mode = selected_schema_mode.strip().lower()
+        if self.schema_mode not in {SCHEMA_MODE_UPGRADE, SCHEMA_MODE_VERIFY}:
+            raise RuntimeError(
+                "DATABASE_SCHEMA_MODE 只能是 upgrade 或 verify"
+            )
         parsed_url = make_url(url)
         self._backend_name = parsed_url.get_backend_name()
         self._is_memory = (
@@ -101,22 +119,44 @@ class Database:
                 async with self.engine.begin() as connection:
                     await connection.run_sync(Base.metadata.create_all)
             else:
-                # 持久化数据库始终由 Alembic 统一升级。放到工作线程运行，
-                # 避免其同步命令和内部 asyncio.run 阻塞 FastAPI 事件循环。
-                await asyncio.to_thread(self._upgrade_schema)
+                if self.schema_mode == SCHEMA_MODE_UPGRADE:
+                    # Source mode keeps its explicit/backwards-compatible
+                    # migration path. Compose processes set verify and wait
+                    # for the one-shot migration Job instead.
+                    await asyncio.to_thread(self._upgrade_schema)
+                else:
+                    await self._verify_schema()
             self._initialized = True
 
     def _upgrade_schema(self) -> None:
-        backend_root = Path(__file__).resolve().parents[2]
-        config = Config(str(backend_root / "alembic.ini"))
-        config.set_main_option("script_location", str(backend_root / "alembic"))
-        config.attributes["database_url"] = self.url
-        config.attributes["runtime_mode"] = self.runtime_mode
-        config.attributes["app_env"] = self.app_env
-        # 应用启动时保留 Uvicorn/FastAPI 已有日志配置；直接运行
-        # `alembic` CLI 时仍由 env.py 配置迁移日志。
-        config.attributes["configure_logger"] = False
-        command.upgrade(config, "head")
+        upgrade_schema(
+            database_url=self.url,
+            runtime_mode=self.runtime_mode,
+            app_env=self.app_env,
+            # Keep Uvicorn/FastAPI logging configuration in source mode.
+            configure_logger=False,
+        )
+
+    async def _verify_schema(self) -> None:
+        config = build_alembic_config(
+            database_url=self.url,
+            runtime_mode=self.runtime_mode,
+            app_env=self.app_env,
+            configure_logger=False,
+        )
+        expected = expected_schema_heads(config)
+
+        def read_current_heads(connection) -> tuple[str, ...]:
+            return tuple(
+                sorted(MigrationContext.configure(connection).get_current_heads())
+            )
+
+        async with self.engine.connect() as connection:
+            current = await connection.run_sync(read_current_heads)
+        if current != expected:
+            raise RuntimeError(
+                "数据库 schema 未由 migration Job 升级到当前 Alembic head"
+            )
 
     @asynccontextmanager
     async def session(self) -> AsyncIterator[AsyncSession]:

@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import AsyncIterator, TypeVar
 
-from sqlalchemy import DateTime, Select, func, select
+from sqlalchemy import DateTime, Select, Update, and_, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,7 +17,15 @@ from app.automation.models import DeviceLeaseStatus, DeviceStatus, TaskStatus
 from app.core.errors import ConflictError
 from app.database.base import Base
 from app.database.session import Database
-from app.runtime.orm import AutomationTaskRecord, DeviceLeaseRecord, DeviceRecord
+from app.runtime.orm import (
+    AutomationTaskRecord,
+    AutomationTaskWakeupOutboxRecord,
+    DeviceLeaseRecord,
+    DeviceRecord,
+    ProviderRunRecord,
+    ProviderTriggerIntentRecord,
+    ScheduleRecord,
+)
 
 
 RecordT = TypeVar("RecordT", bound=Base)
@@ -130,6 +138,211 @@ def build_postgres_clock_statement() -> Select[tuple[datetime]]:
     return select(func.clock_timestamp(type_=DateTime(timezone=True)))
 
 
+def build_provider_trigger_claim_statement(
+    *,
+    now: datetime,
+    use_skip_locked: bool,
+) -> Select[tuple[ProviderTriggerIntentRecord]]:
+    """Claim one due intent, including a dispatcher lease that expired."""
+
+    statement = (
+        select(ProviderTriggerIntentRecord)
+        .where(
+            ProviderTriggerIntentRecord.attempts
+            < ProviderTriggerIntentRecord.max_attempts,
+            or_(
+                and_(
+                    ProviderTriggerIntentRecord.status.in_(
+                        ("pending", "retry_wait")
+                    ),
+                    ProviderTriggerIntentRecord.available_at <= now,
+                ),
+                and_(
+                    ProviderTriggerIntentRecord.status == "claimed",
+                    ProviderTriggerIntentRecord.lease_expires_at.is_not(None),
+                    ProviderTriggerIntentRecord.lease_expires_at <= now,
+                ),
+            ),
+        )
+        .order_by(
+            ProviderTriggerIntentRecord.available_at,
+            ProviderTriggerIntentRecord.created_at,
+            ProviderTriggerIntentRecord.id,
+        )
+        .limit(1)
+    )
+    if use_skip_locked:
+        statement = statement.with_for_update(skip_locked=True)
+    return statement
+
+
+def build_task_wakeup_outbox_claim_statement(
+    *,
+    now: datetime,
+    use_skip_locked: bool,
+) -> Select[tuple[AutomationTaskWakeupOutboxRecord]]:
+    """Select one due or lease-expired content-free wake-up event."""
+
+    statement = (
+        select(AutomationTaskWakeupOutboxRecord)
+        .where(
+            or_(
+                and_(
+                    AutomationTaskWakeupOutboxRecord.status.in_(
+                        ("pending", "retry_wait")
+                    ),
+                    AutomationTaskWakeupOutboxRecord.available_at <= now,
+                ),
+                and_(
+                    AutomationTaskWakeupOutboxRecord.status == "claimed",
+                    AutomationTaskWakeupOutboxRecord.lease_expires_at.is_not(None),
+                    AutomationTaskWakeupOutboxRecord.lease_expires_at <= now,
+                ),
+            )
+        )
+        .order_by(
+            AutomationTaskWakeupOutboxRecord.available_at,
+            AutomationTaskWakeupOutboxRecord.created_at,
+            AutomationTaskWakeupOutboxRecord.id,
+        )
+        .limit(1)
+    )
+    if use_skip_locked:
+        statement = statement.with_for_update(skip_locked=True)
+    return statement
+
+
+def build_task_wakeup_outbox_settle_statement(
+    *,
+    outbox_id: str,
+    dispatcher_id: str,
+    lease_token_hash: str,
+    expected_version: int,
+    now: datetime,
+    published: bool,
+    retry_at: datetime | None = None,
+    use_database_clock: bool = False,
+) -> Update:
+    """Build the token/version/expiry CAS used after broker I/O."""
+
+    lease_cutoff = (
+        func.clock_timestamp(type_=DateTime(timezone=True))
+        if use_database_clock
+        else now
+    )
+    if published:
+        values = {
+            "status": "published",
+            "published_at": now,
+            "last_error_code": None,
+        }
+    else:
+        if retry_at is None:
+            raise ValueError("retry_at is required for a failed publish")
+        values = {
+            "status": "retry_wait",
+            "available_at": retry_at,
+            "published_at": None,
+            "last_error_code": "broker_publish_failed",
+        }
+    return (
+        update(AutomationTaskWakeupOutboxRecord)
+        .where(
+            AutomationTaskWakeupOutboxRecord.id == outbox_id,
+            AutomationTaskWakeupOutboxRecord.status == "claimed",
+            AutomationTaskWakeupOutboxRecord.lease_owner == dispatcher_id,
+            AutomationTaskWakeupOutboxRecord.lease_token_hash
+            == lease_token_hash,
+            AutomationTaskWakeupOutboxRecord.version == expected_version,
+            AutomationTaskWakeupOutboxRecord.lease_expires_at.is_not(None),
+            AutomationTaskWakeupOutboxRecord.lease_expires_at > lease_cutoff,
+        )
+        .values(
+            **values,
+            lease_owner=None,
+            lease_token_hash=None,
+            lease_expires_at=None,
+            updated_at=now,
+            version=AutomationTaskWakeupOutboxRecord.version + 1,
+        )
+        .returning(AutomationTaskWakeupOutboxRecord.id)
+    )
+
+
+def build_schedule_claim_statement(
+    *,
+    now: datetime,
+    due_at: datetime | None = None,
+    use_skip_locked: bool,
+    excluded_ids: Collection[str] = (),
+) -> Select[tuple[ScheduleRecord]]:
+    """Select one due schedule whose short dispatcher lease is available."""
+
+    due_cutoff = due_at or now
+    statement = select(ScheduleRecord).where(
+        ScheduleRecord.enabled.is_(True),
+        ScheduleRecord.next_run_at.is_not(None),
+        ScheduleRecord.next_run_at <= due_cutoff,
+        or_(
+            ScheduleRecord.claim_expires_at.is_(None),
+            ScheduleRecord.claim_expires_at <= now,
+        ),
+    )
+    if excluded_ids:
+        statement = statement.where(ScheduleRecord.id.not_in(excluded_ids))
+    statement = statement.order_by(
+        ScheduleRecord.next_run_at,
+        ScheduleRecord.id,
+    ).limit(1)
+    if use_skip_locked:
+        statement = statement.with_for_update(skip_locked=True)
+    return statement
+
+
+def build_schedule_finalize_statement(
+    *,
+    schedule_id: str,
+    expected_version: int,
+    expected_next_run_at: datetime,
+    scheduler_id: str,
+    claim_token_hash: str,
+    now: datetime,
+    last_run_at: datetime,
+    next_run_at: datetime,
+    use_database_clock: bool = False,
+) -> Update:
+    """Build the token + version CAS that authorizes one schedule finalization."""
+
+    lease_cutoff = (
+        func.clock_timestamp(type_=DateTime(timezone=True))
+        if use_database_clock
+        else now
+    )
+    return (
+        update(ScheduleRecord)
+        .where(
+            ScheduleRecord.id == schedule_id,
+            ScheduleRecord.enabled.is_(True),
+            ScheduleRecord.version == expected_version,
+            ScheduleRecord.next_run_at == expected_next_run_at,
+            ScheduleRecord.claim_owner == scheduler_id,
+            ScheduleRecord.claim_token_hash == claim_token_hash,
+            ScheduleRecord.claim_expires_at.is_not(None),
+            ScheduleRecord.claim_expires_at > lease_cutoff,
+        )
+        .values(
+            last_run_at=last_run_at,
+            next_run_at=next_run_at,
+            claim_owner=None,
+            claim_token_hash=None,
+            claim_expires_at=None,
+            version=ScheduleRecord.version + 1,
+            updated_at=now,
+        )
+        .returning(ScheduleRecord.id)
+    )
+
+
 class RuntimeRepository:
     """Keep SQLite deterministic and PostgreSQL claims multi-worker safe."""
 
@@ -137,6 +350,10 @@ class RuntimeRepository:
         self.database = database
         self._is_postgresql = database.engine.dialect.name == "postgresql"
         self._single_process_lock = asyncio.Lock()
+
+    @property
+    def is_postgresql(self) -> bool:
+        return self._is_postgresql
 
     async def initialize(self) -> None:
         await self.database.initialize()
@@ -181,6 +398,152 @@ class RuntimeRepository:
             now=now,
             use_skip_locked=self._is_postgresql,
         )
+        return await session.scalar(statement)
+
+    async def claim_provider_trigger_intent(
+        self,
+        session: AsyncSession,
+        *,
+        now: datetime,
+    ) -> ProviderTriggerIntentRecord | None:
+        statement = build_provider_trigger_claim_statement(
+            now=now,
+            use_skip_locked=self._is_postgresql,
+        )
+        return await session.scalar(statement)
+
+    async def claim_task_wakeup_outbox(
+        self,
+        session: AsyncSession,
+        *,
+        now: datetime,
+    ) -> AutomationTaskWakeupOutboxRecord | None:
+        statement = build_task_wakeup_outbox_claim_statement(
+            now=now,
+            use_skip_locked=self._is_postgresql,
+        )
+        return await session.scalar(statement)
+
+    async def settle_task_wakeup_outbox(
+        self,
+        session: AsyncSession,
+        *,
+        outbox_id: str,
+        dispatcher_id: str,
+        lease_token_hash: str,
+        expected_version: int,
+        now: datetime,
+        published: bool,
+        retry_at: datetime | None = None,
+    ) -> bool:
+        statement = build_task_wakeup_outbox_settle_statement(
+            outbox_id=outbox_id,
+            dispatcher_id=dispatcher_id,
+            lease_token_hash=lease_token_hash,
+            expected_version=expected_version,
+            now=now,
+            published=published,
+            retry_at=retry_at,
+            use_database_clock=self._is_postgresql,
+        )
+        return await session.scalar(statement) is not None
+
+    async def claim_schedule_candidate(
+        self,
+        session: AsyncSession,
+        *,
+        now: datetime,
+        due_at: datetime | None = None,
+        excluded_ids: Collection[str] = (),
+    ) -> ScheduleRecord | None:
+        statement = build_schedule_claim_statement(
+            now=now,
+            due_at=due_at,
+            use_skip_locked=self._is_postgresql,
+            excluded_ids=excluded_ids,
+        )
+        return await session.scalar(statement)
+
+    async def finalize_schedule_claim(
+        self,
+        session: AsyncSession,
+        *,
+        schedule_id: str,
+        expected_version: int,
+        expected_next_run_at: datetime,
+        scheduler_id: str,
+        claim_token_hash: str,
+        now: datetime,
+        last_run_at: datetime,
+        next_run_at: datetime,
+    ) -> bool:
+        statement = build_schedule_finalize_statement(
+            schedule_id=schedule_id,
+            expected_version=expected_version,
+            expected_next_run_at=expected_next_run_at,
+            scheduler_id=scheduler_id,
+            claim_token_hash=claim_token_hash,
+            now=now,
+            last_run_at=last_run_at,
+            next_run_at=next_run_at,
+            use_database_clock=self._is_postgresql,
+        )
+        return await session.scalar(statement) is not None
+
+    async def release_schedule_claim(
+        self,
+        session: AsyncSession,
+        *,
+        schedule_id: str,
+        scheduler_id: str,
+        claim_token_hash: str,
+    ) -> None:
+        await session.execute(
+            update(ScheduleRecord)
+            .where(
+                ScheduleRecord.id == schedule_id,
+                ScheduleRecord.claim_owner == scheduler_id,
+                ScheduleRecord.claim_token_hash == claim_token_hash,
+            )
+            .values(
+                claim_owner=None,
+                claim_token_hash=None,
+                claim_expires_at=None,
+            )
+        )
+
+    async def get_provider_trigger_intent_for_update(
+        self,
+        session: AsyncSession,
+        intent_id: str,
+    ) -> ProviderTriggerIntentRecord | None:
+        statement = select(ProviderTriggerIntentRecord).where(
+            ProviderTriggerIntentRecord.id == intent_id
+        )
+        if self._is_postgresql:
+            statement = statement.with_for_update()
+        return await session.scalar(statement)
+
+    async def get_provider_run_for_update(
+        self,
+        session: AsyncSession,
+        run_id: str,
+    ) -> ProviderRunRecord | None:
+        statement = select(ProviderRunRecord).where(
+            ProviderRunRecord.id == run_id
+        )
+        if self._is_postgresql:
+            statement = statement.with_for_update()
+        return await session.scalar(statement)
+
+    async def get_schedule_for_update(
+        self,
+        session: AsyncSession,
+        schedule_id: str,
+    ) -> ScheduleRecord | None:
+        statement = select(ScheduleRecord).where(ScheduleRecord.id == schedule_id)
+        if self._is_postgresql:
+            statement = statement.with_for_update()
         return await session.scalar(statement)
 
     async def database_now(
@@ -368,5 +731,10 @@ __all__ = [
     "build_device_candidate_statement",
     "build_expired_task_lease_statement",
     "build_postgres_clock_statement",
+    "build_provider_trigger_claim_statement",
+    "build_schedule_claim_statement",
+    "build_schedule_finalize_statement",
     "build_task_claim_statement",
+    "build_task_wakeup_outbox_claim_statement",
+    "build_task_wakeup_outbox_settle_statement",
 ]

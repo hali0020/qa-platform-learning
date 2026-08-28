@@ -132,16 +132,31 @@ async def test_trigger_advances_deterministically_without_background_tasks(
         assert running.json()["stages"][0]["jobs"][0]["status"] == "running"
 
         clock.advance(milliseconds=500)
-        completed = await client.get(f"/api/v1/runs/{run_id}", headers=auth())
-        assert completed.status_code == 200
-        body = completed.json()
-        assert body["status"] == "succeeded"
-        assert body["finished_at"] == "2026-08-27T00:00:00.600000Z"
+        waiting = await client.get(f"/api/v1/runs/{run_id}", headers=auth())
+        assert waiting.status_code == 200
+        body = waiting.json()
+        assert body["status"] == "waiting_approval"
+        assert body["finished_at"] is None
         assert all(
             job["status"] == "succeeded"
             for stage in body["stages"]
             for job in stage["jobs"]
         )
+
+        completed = await client.post(
+            f"/api/v1/runs/{run_id}/gate-decisions",
+            headers=auth(),
+            json={
+                "event_id": "approve-timeline-001",
+                "decision": "approve",
+                "actor_id": "qa-lead-1",
+                "actor_name": "QA Lead",
+                "comment": "checks reviewed",
+            },
+        )
+        assert completed.status_code == 200
+        assert completed.json()["status"] == "succeeded"
+        assert completed.json()["finished_at"] == "2026-08-27T00:00:00.600000Z"
     finally:
         await client.aclose()
         await application.state.ci_lab_service.close()
@@ -261,7 +276,7 @@ async def test_run_survives_service_restart_and_uses_injected_clock(
     try:
         restored = await second_client.get(f"/api/v1/runs/{run_id}", headers=auth())
         assert restored.status_code == 200
-        assert restored.json()["status"] == "succeeded"
+        assert restored.json()["status"] == "waiting_approval"
         assert restored.json()["id"] == run_id
     finally:
         await second_client.aclose()
@@ -292,15 +307,28 @@ async def test_observed_states_never_regress_when_wall_clock_moves_back(
         assert still_running.json()["stages"][0]["jobs"][0]["status"] == "running"
 
         clock.value = BASE + timedelta(milliseconds=600)
-        succeeded = await client.get(f"/api/v1/runs/{run_id}", headers=auth())
-        assert succeeded.json()["status"] == "succeeded"
+        waiting = await client.get(f"/api/v1/runs/{run_id}", headers=auth())
+        assert waiting.json()["status"] == "waiting_approval"
 
         clock.value = BASE
-        still_succeeded = await client.get(f"/api/v1/runs/{run_id}", headers=auth())
-        assert still_succeeded.json()["status"] == "succeeded"
+        still_waiting = await client.get(f"/api/v1/runs/{run_id}", headers=auth())
+        assert still_waiting.json()["status"] == "waiting_approval"
+        approved = await client.post(
+            f"/api/v1/runs/{run_id}/gate-decisions",
+            headers=auth(),
+            json={
+                "event_id": "clock-approval-001",
+                "decision": "approve",
+                "actor_id": "qa-lead-1",
+                "actor_name": "QA Lead",
+                "comment": "",
+            },
+        )
+        assert approved.json()["status"] == "succeeded"
+        assert approved.json()["finished_at"] == "2026-08-27T00:00:00.600000Z"
         assert all(
             job["status"] == "succeeded"
-            for stage in still_succeeded.json()["stages"]
+            for stage in approved.json()["stages"]
             for job in stage["jobs"]
         )
     finally:

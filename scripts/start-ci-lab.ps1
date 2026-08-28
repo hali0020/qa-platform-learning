@@ -18,7 +18,8 @@ if (-not (Test-Path -LiteralPath $CiLabMain -PathType Leaf)) {
 $ManagedVariables = @(
     "COMPOSE_PROVIDER_RUNTIME_MODE",
     "COMPOSE_PROVIDER_SECRET_ENV_ALLOWLIST",
-    "QA_PROVIDER_SECRET_CI_LAB"
+    "QA_PROVIDER_SECRET_CI_LAB",
+    "QA_PROVIDER_SECRET_CI_LAB_WEBHOOK"
 )
 $PreviousValues = @{}
 foreach ($Name in $ManagedVariables) {
@@ -29,6 +30,7 @@ foreach ($Name in $ManagedVariables) {
 }
 
 $MachineToken = $PreviousValues["QA_PROVIDER_SECRET_CI_LAB"]
+$WebhookSecret = $PreviousValues["QA_PROVIDER_SECRET_CI_LAB_WEBHOOK"]
 if ([string]::IsNullOrWhiteSpace($MachineToken)) {
     $RandomBytes = [Security.Cryptography.RandomNumberGenerator]::GetBytes(32)
     try {
@@ -42,6 +44,23 @@ if ([string]::IsNullOrWhiteSpace($MachineToken)) {
 if ($MachineToken -notmatch '^[A-Za-z0-9_-]{32,256}$') {
     throw "CI Lab Token 必须是 32-256 位字母、数字、下划线或连字符。"
 }
+if ([string]::IsNullOrWhiteSpace($WebhookSecret)) {
+    $WebhookRandomBytes = [Security.Cryptography.RandomNumberGenerator]::GetBytes(32)
+    try {
+        $WebhookSecret = [Convert]::ToBase64String($WebhookRandomBytes).`
+            Replace('+', '-').Replace('/', '_').TrimEnd('=')
+    }
+    finally {
+        [Array]::Clear(
+            $WebhookRandomBytes,
+            0,
+            $WebhookRandomBytes.Length
+        )
+    }
+}
+if ($WebhookSecret -notmatch '^[A-Za-z0-9_-]{32,256}$') {
+    throw "CI Lab Webhook Secret 必须是 32-256 位安全 ASCII 字符。"
+}
 
 try {
     [Environment]::SetEnvironmentVariable(
@@ -51,12 +70,17 @@ try {
     )
     [Environment]::SetEnvironmentVariable(
         "COMPOSE_PROVIDER_SECRET_ENV_ALLOWLIST",
-        "QA_PROVIDER_SECRET_CI_LAB",
+        "QA_PROVIDER_SECRET_CI_LAB,QA_PROVIDER_SECRET_CI_LAB_WEBHOOK",
         [EnvironmentVariableTarget]::Process
     )
     [Environment]::SetEnvironmentVariable(
         "QA_PROVIDER_SECRET_CI_LAB",
         $MachineToken,
+        [EnvironmentVariableTarget]::Process
+    )
+    [Environment]::SetEnvironmentVariable(
+        "QA_PROVIDER_SECRET_CI_LAB_WEBHOOK",
+        $WebhookSecret,
         [EnvironmentVariableTarget]::Process
     )
 
@@ -90,6 +114,7 @@ try {
 }
 finally {
     $MachineToken = $null
+    $WebhookSecret = $null
     foreach ($Name in $ManagedVariables) {
         [Environment]::SetEnvironmentVariable(
             $Name,

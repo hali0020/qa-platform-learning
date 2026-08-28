@@ -22,6 +22,7 @@ from app.core.errors import BusinessValidationError
 from app.services.attachment_storage import (
     AttachmentStorageIntegrityError,
     AttachmentStorageUnavailableError,
+    AttachmentValidationProfile,
     QuarantineReceipt,
     StoredContent,
     StoredUpload,
@@ -113,8 +114,20 @@ class S3AttachmentStorage:
             max_image_pixels=max_image_pixels,
         )
 
-    async def save(self, upload: UploadFile, attachment_id: UUID) -> StoredUpload:
-        staged = await self._staging.save(upload, attachment_id)
+    async def save(
+        self,
+        upload: UploadFile,
+        attachment_id: UUID,
+        *,
+        validation_profile: AttachmentValidationProfile = (
+            AttachmentValidationProfile.GENERIC
+        ),
+    ) -> StoredUpload:
+        staged = await self._staging.save(
+            upload,
+            attachment_id,
+            validation_profile=validation_profile,
+        )
         storage_key = validate_storage_key(staged.storage_key)
         staged_path = self._staging.path_for_key(storage_key)
         upload_id: str | None = None

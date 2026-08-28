@@ -30,10 +30,11 @@ SQLite（默认）/ PostgreSQL（可选内部容器）/ 本机文件（默认）
 - Collaboration：评论、回复、附件元数据与本机安全存储。
 - Data Transfer：CSV/XLSX 模板、解析、预检、部分创建与导出。
 - Quality：通过率、覆盖率、趋势和套件维度的只读计算。
-- Pipeline：本地流水线，以及 Local/Learning CI/Jenkins/GitLab/BK-CI Provider。
-- CI Lab：独立 FastAPI/SQLite 控制面，拥有固定 Definition 和 Run 状态事实；不共享 QA 数据库，不提供 Shell、动态插件、Git clone 或任意 URL。
-- Automation Runtime：持久任务、设备租约、调度和 Provider 运行映射。
-- Broker/Worker：固定 RabbitMQ 唤醒提示、数据库权威租约、固定本机 Handler 与优雅退出。
+- Pipeline：本地流水线，以及 Local/Learning CI/Jenkins/GitLab/BK-CI Provider；外部触发先写持久 Intent，再由独立 Dispatcher 执行事务外 HTTP。
+- CI Lab：独立 FastAPI/SQLite 控制面，拥有固定 Definition、Run 和质量门禁事实；不共享 QA 数据库，不提供 Shell、动态插件、Git clone 或任意 URL。
+- Automation Runtime：持久任务、设备租约、Provider Run/审批/Artifact/Webhook 收据、Trigger Intent、调度 claim/fire 和任务唤醒 outbox。
+- Broker/Worker：固定无业务内容 RabbitMQ 唤醒提示、数据库权威租约、固定本机 Handler 与优雅退出；Web 不持有 Broker。
+- Runtime Processes：一次性 migration Job、独立 Provider Dispatcher、PostgreSQL Scheduler、Outbox Dispatcher 与 Worker。
 - Object Storage：默认本机文件适配器，以及只允许内部 `seaweedfs:8333` 的 S3 兼容适配器；Bucket 固定为 `qa-artifacts`。
 - External Identity：默认关闭的 Keycloak OIDC 适配，固定 public issuer、内部 token/JWKS transport、PKCE/nonce/state 与管理员显式 subject 绑定。
 - Secret Store：默认环境适配器，以及只允许内部 `vault:8200`、两个精确 KV-v2 文档和 token file 的 Vault 适配器；当前业务接线仅覆盖 Provider Secret。
@@ -57,7 +58,9 @@ Jenkins/GitLab/BK-CI 仍只允许显式 `self_hosted_lab`，并要求自有环�
 
 运行时 Secret 默认来自本机进程环境。可选 Vault 模式的 core 位于 `secrets-core`，应用只能经过 `vault` gateway GET `runtime` 与 `providers` 两个 KV-v2 data path；同样的精确边界还由 Vault ACL policy 重复约束。backend 只读取 Compose secret token 文件，root token 与 unseal key 没有应用挂载路径。本轮真正接线的是 Provider 在执行操作时异步读取 `providers` 中已精确 allowlist 的 `QA_PROVIDER_SECRET_*`；sealed、403、超时或 schema 错误令该操作失败关闭。`runtime` 文档只是启动引导接口的教学预留，数据库、Broker、S3 仍在同步构造阶段从现有 Settings/`.env` 读取，尚未由 Vault 启动注入。
 
-这些模型可持久化，独立 Worker 进程骨架和内部 RabbitMQ profile 已加入；Scheduler、迁移 Job、outbox 及真实多进程故障演练仍未完成。
+这些模型可持久化。独立 Worker、Provider Dispatcher、Scheduler、Outbox Dispatcher
+和一次性 migration Job 已编码；PostgreSQL claim/CAS、任务 wake-up outbox 和进程
+边界有自动化测试。真实 PostgreSQL/RabbitMQ、多进程竞争与故障演练仍未完成。
 
 ## 当前一致性边界
 
@@ -68,17 +71,25 @@ Jenkins/GitLab/BK-CI 仍只允许显式 `self_hosted_lab`，并要求自有环�
 | 批量导入 | 默认 clean gate 零写入；允许部分时逐行提交，非原子 | 原子批事务或可恢复批任务二选一 |
 | 质量报表 | 多 Repository 读取后内存聚合 | 同一读事务、SQL 聚合、事实表 |
 | 本地流水线 | 完整快照在同一数据库事务提交，单进程写协调 | 按 Run 增量更新、版本/CAS |
-| QA → Learning CI 触发 | CI Lab 以全局幂等键去重外部副作用；QA 端当前在关系库事务内完成 HTTP 后再保存映射 | transactional outbox/trigger intent、短事务、可恢复对账与补偿 |
-| 任务与设备租约 | PostgreSQL 为 claim 权威来源；任务/设备行锁、统一数据库时钟与 active-device 唯一索引；RabbitMQ 仅唤醒 | 容器并发验证、事务 outbox、Handler 业务幂等与容量治理 |
-| 附件元数据 + 对象内容 | 数据库与文件/S3 是两个资源，不能伪装成一个原子事务；失败必须可识别、可补偿 | pending 状态、outbox、孤儿对象回收和校验任务 |
-| Scheduler | 持久 next-run/fire 语义 | 领导者选举或数据库抢占 |
+| QA → Learning CI 触发 | Run + Trigger Intent 同事务；Dispatcher 租约 claim 后在事务外 HTTP，再以 token/version 结算；幂等键用于重试，未知结果标记对账 | 真实容器崩溃窗、超时和多 Dispatcher 验收 |
+| CI 状态同步 | 独立签名 Webhook 收据处理重放、乱序、缺口和终态回退；轮询可对账 | CI Lab 主动 delivery outbox/Worker、真实网络故障验收 |
+| 任务与设备租约 | PostgreSQL 为 claim 权威来源；任务与 wake-up outbox 同事务，独立 Dispatcher 只发布固定提示，Worker 数据库轮询兜底 | 容器并发/故障验证、Handler 业务幂等与容量治理 |
+| Provider Artifact 元数据 + 对象内容 | `pending → ready/failed → deleted`，保存摘要；上传/删除使用补偿、quarantine/restore 和审计 | 孤儿对象扫描、病毒检测、成对备份恢复 |
+| Scheduler | 独立进程，PG `SKIP LOCKED` claim、数据库时钟、事务外 Cron 计算与版本/token CAS | 真实多实例、数据库中断和恢复验收 |
 
-`asyncio.Lock` 只能协调一个 Python 进程，不能保护多 Worker 或多实例。切换到 PostgreSQL 不会自动改变这条边界，Docker 示例因此仍固定一个 Uvicorn Worker。
+`asyncio.Lock` 只能协调一个 Python 进程，不能保护多 Worker 或多实例。阶段六只把
+任务、Scheduler、Provider Intent 和 outbox 的特定路径改为数据库 claim/CAS；其他
+跨 Repository 写入、本机文件与部分业务锁仍未完成多实例审计。Docker 示例因此仍
+固定一个 Uvicorn Web Worker，不宣称 Web 高可用。
 
 ## 运行拓扑
 
-本机源码模式由 Vue 开发服务器代理 `/api/v1` 到 FastAPI，默认使用本机 SQLite、`local_filesystem`、本机账号、环境 Secret 与无网络 Local Provider。Compose 模式由 Nginx 提供静态页面并反代后端，业务端口仅发布到 `127.0.0.1`；Prometheus、Alertmanager、PostgreSQL、Worker、SeaweedFS、Keycloak、Vault 与 CI Lab 使用可选 profile。`worker` profile 强制 `postgres_local_container + rabbitmq_local_container`，RabbitMQ 只发送固定无业务数据的 wake-up hint，Worker 仍从 PostgreSQL claim。`object-storage` profile 提供单节点 SeaweedFS，但只有后端同时显式选择 `s3_local_container` 才会使用它。`identity-secrets` 提供路径受限的 Keycloak/Vault 双层网络；只有后端同时选择对应严格运行模式才会发起内部 HTTP。`ci-lab` profile 在独立 internal 网络以固定 `172.30.60.2` 运行，仅把观察端口 `23020` 绑定到宿主机环回；QA frontend 不代理 Lab。数据库、AMQP、S3、OIDC core、Vault core 和其他内部组件端口都不发布到宿主机。
+本机源码模式由 Vue 开发服务器代理 `/api/v1` 到 FastAPI，默认使用本机 SQLite、`local_filesystem`、本机账号、环境 Secret 与无网络 Local Provider。源码启动脚本先运行 Alembic，Web 随后只校验 schema；SQLite 的手工 tick/dispatch 只用于单进程教学。
 
-当前机器没有 Docker，因此 PostgreSQL/RabbitMQ/SeaweedFS/Keycloak/Vault/CI Lab/多 Worker 拓扑只完成配置边界、共享持久化代码、单元测试、ORM/迁移方言和探针分支的静态/自动化验证，尚未真实运行容器。CI Lab 的 Python 契约和 Provider→ASGI 全链路已验证，但固定 IP 上的真实 socket、容器重启与故障注入仍待补做。SQLite→PostgreSQL 数据搬迁、对象数据搬迁、realm import、PKCE+TOTP、Vault init/unseal、命名卷权限、多实例并发、迁移互斥和故障切换也尚未完成。
+Compose 模式由 Nginx 提供静态页面并反代后端，业务端口仅发布到 `127.0.0.1`。一次性 migration Job 是唯一 schema writer；Web、Worker、Scheduler、Provider Dispatcher 和 Outbox Dispatcher 等待其成功并使用 verify-only 模式。Web 的 Broker 配置固定关闭，只提交任务/outbox；Outbox Dispatcher 独占 RabbitMQ publish，Worker 消费提示后仍从 PostgreSQL claim。`worker`/`scheduler`/`outbox`/`provider-dispatcher` profile 均要求内部 PostgreSQL，Broker 只在需要 Worker/outbox 时启用。
 
-生产目标至少应拆分为入口网关、Web API、迁移 Job、Worker、Scheduler、关系数据库、消息代理、对象存储、Secret Manager 和监控系统，并补齐 TLS、备份、资源限制、灰度和回滚。
+`object-storage` profile 提供单节点 SeaweedFS，但只有后端同时显式选择 `s3_local_container` 才会使用它。`identity-secrets` 提供路径受限的 Keycloak/Vault 双层网络；只有后端同时选择对应严格运行模式才会发起内部 HTTP。`ci-lab` profile 在独立 internal 网络以固定 `172.30.60.2` 运行，仅把观察端口 `23020` 绑定到宿主机环回；QA frontend 不代理 Lab。数据库、AMQP、S3、OIDC core、Vault core 和其他内部组件端口都不发布到宿主机。
+
+当前机器没有 Docker，因此 PostgreSQL/RabbitMQ/SeaweedFS/Keycloak/Vault/CI Lab、多 Worker/Scheduler/Dispatcher 拓扑只完成配置边界、共享持久化代码、单元测试、ORM/迁移方言和探针分支的静态/自动化验证，尚未真实运行容器。CI Lab 的 Python 契约、质量门禁和 Provider→ASGI 调用已验证，但它没有主动 Webhook delivery Worker；只验证了 QA 端独立签名接收。固定 IP socket、容器启动顺序、重启、重复消息、进程强杀、租约过期、Broker/数据库中断和故障注入仍待补做。SQLite→PostgreSQL/对象数据搬迁、备份恢复、realm import、PKCE+TOTP、Vault init/unseal、命名卷权限、多实例并发和故障切换也尚未完成。
+
+当前代码已表达入口、Web API、迁移 Job、Worker、Scheduler、两个 Dispatcher、关系数据库、消息代理、对象存储、Secret Manager 和监控的部署边界，但这只是单机 Compose 设计。生产仍需 TLS、备份恢复、资源限制、灰度/回滚和真实 HA 验收。

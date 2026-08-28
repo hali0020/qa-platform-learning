@@ -17,11 +17,13 @@ from sqlalchemy import (
     CheckConstraint,
     Column,
     DateTime,
+    ForeignKey,
     Index,
     Integer,
     MetaData,
     String,
     Table,
+    UniqueConstraint,
     event,
 )
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_engine
@@ -57,6 +59,64 @@ runs = Table(
 )
 Index("ix_ci_lab_runs_created", runs.c.created_at)
 Index("ix_ci_lab_runs_definition", runs.c.definition, runs.c.created_at)
+
+
+quality_gates = Table(
+    "ci_lab_quality_gates",
+    metadata,
+    Column(
+        "run_id",
+        String(36),
+        ForeignKey("ci_lab_runs.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column("policy_revision", Integer, nullable=False),
+    Column("status", String(30), nullable=False),
+    Column("reached_at", DateTime(timezone=True), nullable=True),
+    Column("decided_at", DateTime(timezone=True), nullable=True),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+    CheckConstraint(
+        "status IN ('evaluating', 'waiting_approval', 'approved', "
+        "'rejected', 'failed', 'cancelled')",
+        name="ck_ci_lab_quality_gates_status",
+    ),
+    CheckConstraint(
+        "policy_revision >= 1",
+        name="ck_ci_lab_quality_gates_policy_revision",
+    ),
+)
+Index("ix_ci_lab_quality_gates_status", quality_gates.c.status)
+
+
+approvals = Table(
+    "ci_lab_run_approvals",
+    metadata,
+    Column("id", String(36), primary_key=True),
+    Column(
+        "run_id",
+        String(36),
+        ForeignKey("ci_lab_runs.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column("event_id", String(200), nullable=False),
+    Column("request_fingerprint", String(64), nullable=False),
+    Column("decision", String(20), nullable=False),
+    Column("actor_id", String(100), nullable=False),
+    Column("actor_name", String(100), nullable=False),
+    Column("comment", String(1000), nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    CheckConstraint(
+        "decision IN ('approve', 'reject')",
+        name="ck_ci_lab_run_approvals_decision",
+    ),
+    UniqueConstraint("run_id", name="uq_ci_lab_run_approvals_run"),
+    UniqueConstraint(
+        "run_id",
+        "event_id",
+        name="uq_ci_lab_run_approvals_event",
+    ),
+)
+Index("ix_ci_lab_run_approvals_created", approvals.c.run_id, approvals.c.created_at)
 
 
 def require_local_filesystem_path(value: str | Path) -> Path:
@@ -152,7 +212,9 @@ class CiLabDatabase:
 
 __all__ = [
     "CiLabDatabase",
+    "approvals",
     "metadata",
+    "quality_gates",
     "require_local_filesystem_path",
     "runs",
 ]

@@ -6,16 +6,22 @@ from typing import Any
 from urllib.parse import quote
 
 import httpx
+from pydantic import ValidationError
 
 from app.pipeline.models import PipelineStatus
 from app.pipeline.providers.common import ExternalHttpProvider
 from app.pipeline.providers.errors import (
     ProviderConfigurationError,
+    ProviderConflictError,
     ProviderResponseError,
+    ProviderSecurityError,
 )
-from app.pipeline.providers.http import SafeHttpClient
+from app.pipeline.providers.http import SafeHttpClient, SafeHttpResponse
 from app.pipeline.providers.models import (
+    ProviderApproval,
+    ProviderGateDecisionRequest,
     ProviderKind,
+    ProviderQualityGate,
     ProviderRun,
     ProviderTriggerRequest,
 )
@@ -111,6 +117,33 @@ class LearningCiPipelineProvider(ExternalHttpProvider):
             "Accept": "application/json",
         }
 
+    @staticmethod
+    def _expect_status(
+        response: SafeHttpResponse,
+        accepted: set[int],
+    ) -> None:
+        if response.status_code in accepted:
+            return
+        if response.status_code in {401, 403}:
+            raise ProviderSecurityError(
+                "Learning CI rejected the configured credential"
+            )
+        if response.status_code == 409:
+            raise ProviderConflictError(
+                "Learning CI rejected an idempotency key conflict"
+            )
+        if 300 <= response.status_code < 500 and response.status_code not in {
+            408,
+            425,
+            429,
+        }:
+            raise ProviderConfigurationError(
+                "Learning CI rejected the provider request"
+            )
+        raise ProviderResponseError(
+            f"Learning CI returned unexpected HTTP status {response.status_code}"
+        )
+
     async def trigger(self, request: ProviderTriggerRequest) -> ProviderRun:
         self._require_enabled()
         self._require_definition(request.definition_ref, self._definition_id)
@@ -155,6 +188,21 @@ class LearningCiPipelineProvider(ExternalHttpProvider):
         )
         return self._normalize(self._json_object(response, {200, 202}))
 
+    async def decide_gate(
+        self,
+        external_id: str,
+        request: ProviderGateDecisionRequest,
+    ) -> ProviderRun:
+        self._require_enabled()
+        run_id = self._validated_run_id(external_id)
+        response = await self._client.request(
+            "POST",
+            f"/api/v1/runs/{quote(run_id, safe='')}/gate-decisions",
+            headers=self._headers,
+            json_body=request.model_dump(mode="json"),
+        )
+        return self._normalize(self._json_object(response, {200, 202}))
+
     def _normalize(self, payload: Mapping[str, Any]) -> ProviderRun:
         external_id = self._validated_run_id(
             self._string_field(payload, "id")
@@ -187,6 +235,28 @@ class LearningCiPipelineProvider(ExternalHttpProvider):
         if isinstance(replayed, bool):
             metadata["replayed"] = replayed
 
+        try:
+            gate_payload = payload.get("quality_gate")
+            if gate_payload is None and raw_status == "waiting_approval":
+                raise ValueError("waiting approval response omitted its gate")
+            quality_gate = ProviderQualityGate.model_validate(gate_payload or {})
+            raw_approvals = payload.get("approvals", [])
+            if not isinstance(raw_approvals, list) or len(raw_approvals) > 1:
+                raise ValueError("invalid approval list")
+            approvals = [
+                ProviderApproval.model_validate(item) for item in raw_approvals
+            ]
+        except (TypeError, ValueError, ValidationError) as error:
+            raise ProviderResponseError(
+                "Learning CI returned invalid quality gate data"
+            ) from error
+        if raw_status == "waiting_approval" and (
+            not quality_gate.required
+            or quality_gate.status.value != "waiting_approval"
+        ):
+            raise ProviderResponseError(
+                "Learning CI returned inconsistent quality gate state"
+            )
         return ProviderRun(
             provider=self.kind,
             external_id=external_id,
@@ -195,6 +265,8 @@ class LearningCiPipelineProvider(ExternalHttpProvider):
             web_url=self._safe_web_url(payload.get("web_url")),
             message=message_value,
             metadata=metadata,
+            quality_gate=quality_gate,
+            approvals=approvals,
         )
 
     @staticmethod

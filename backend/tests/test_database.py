@@ -42,6 +42,11 @@ PIPELINE_TABLES = {
 RUNTIME_TABLES = {
     "provider_connections",
     "provider_runs",
+    "provider_run_approvals",
+    "provider_run_artifacts",
+    "provider_webhook_events",
+    "provider_trigger_intents",
+    "automation_task_wakeup_outbox",
     "automation_tasks",
     "devices",
     "device_leases",
@@ -82,7 +87,7 @@ def test_initial_migration_can_upgrade_downgrade_and_upgrade_again(
         revision = connection.execute(
             "SELECT version_num FROM alembic_version"
         ).fetchone()
-    assert revision == ("20260827_0009",)
+    assert revision == ("20260828_0011",)
 
     command.downgrade(config, "base")
     assert EXPECTED_TABLES.isdisjoint(read_table_names(database_path))
@@ -127,6 +132,123 @@ def test_two_migrated_databases_are_isolated(tmp_path: Path) -> None:
 
     assert first_count == 1
     assert second_count == 0
+
+
+def test_phase6b_migration_downgrades_and_reupgrades_legacy_provider_run(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "phase6b-roundtrip.db"
+    config = make_alembic_config(database_path)
+    command.upgrade(config, "20260827_0009")
+
+    with sqlite3.connect(database_path) as connection:
+        connection.execute(
+            """
+            INSERT INTO provider_connections (
+                id, name, kind, base_url, definition_ref, config,
+                secret_env_var, enabled, version, created_at, updated_at
+            ) VALUES (
+                'connection-legacy', 'legacy local', 'local', NULL,
+                'local-demo', '{}', NULL, 1, 0,
+                '2026-08-28T00:00:00+00:00',
+                '2026-08-28T00:00:00+00:00'
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO provider_runs (
+                id, connection_id, external_id, status, raw_status, web_url,
+                message, metadata, correlation_id, request_fingerprint,
+                created_at, updated_at
+            ) VALUES (
+                'run-legacy', 'connection-legacy', 'external-legacy',
+                'succeeded', 'success', NULL, 'legacy run', '{}',
+                'correlation-legacy', ?,
+                '2026-08-28T00:00:00+00:00',
+                '2026-08-28T00:00:00+00:00'
+            )
+            """,
+            ("f" * 64,),
+        )
+        connection.commit()
+
+    command.upgrade(config, "head")
+    with sqlite3.connect(database_path) as connection:
+        upgraded = connection.execute(
+            """
+            SELECT external_id, dispatch_status, quality_gate_status,
+                   last_provider_sequence, reconciliation_required,
+                   triggered_by_name, version
+            FROM provider_runs WHERE id = 'run-legacy'
+            """
+        ).fetchone()
+        assert upgraded == (
+            "external-legacy",
+            "dispatched",
+            "not_required",
+            0,
+            0,
+            "local-user",
+            0,
+        )
+        assert connection.execute(
+            "SELECT description FROM permissions WHERE code = 'pipeline.approve'"
+        ).fetchone() is not None
+        connection.execute(
+            """
+            INSERT INTO provider_runs (
+                id, connection_id, external_id, status, raw_status, web_url,
+                message, metadata, correlation_id, request_fingerprint,
+                dispatch_status, quality_gate_status, last_provider_sequence,
+                reconciliation_required, triggered_by_name, version,
+                created_at, updated_at
+            ) VALUES (
+                'run-pending', 'connection-legacy', NULL, 'queued', 'queued',
+                NULL, 'pending local dispatch', '{}', 'correlation-pending', ?,
+                'pending', 'not_required', 0, 0, 'local-user', 0,
+                '2026-08-28T00:01:00+00:00',
+                '2026-08-28T00:01:00+00:00'
+            )
+            """,
+            ("e" * 64,),
+        )
+        connection.commit()
+
+    command.downgrade(config, "20260827_0009")
+    assert {
+        "provider_run_approvals",
+        "provider_run_artifacts",
+        "provider_webhook_events",
+        "provider_trigger_intents",
+    }.isdisjoint(read_table_names(database_path))
+    with sqlite3.connect(database_path) as connection:
+        columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(provider_runs)")
+        }
+        assert "dispatch_status" not in columns
+        assert connection.execute(
+            "SELECT external_id FROM provider_runs WHERE id = 'run-legacy'"
+        ).fetchone() == ("external-legacy",)
+        assert connection.execute(
+            "SELECT external_id FROM provider_runs WHERE id = 'run-pending'"
+        ).fetchone() == ("local-downgrade-pending-run-pending",)
+        assert connection.execute(
+            "SELECT COUNT(*) FROM permissions WHERE code = 'pipeline.approve'"
+        ).fetchone() == (0,)
+
+    command.upgrade(config, "head")
+    assert EXPECTED_TABLES <= read_table_names(database_path)
+    with sqlite3.connect(database_path) as connection:
+        assert connection.execute(
+            "SELECT dispatch_status FROM provider_runs WHERE id = 'run-legacy'"
+        ).fetchone() == ("dispatched",)
+        assert connection.execute(
+            "SELECT external_id FROM provider_runs WHERE id = 'run-pending'"
+        ).fetchone() == ("local-downgrade-pending-run-pending",)
+        assert connection.execute(
+            "SELECT version_num FROM alembic_version"
+        ).fetchone() == ("20260828_0011",)
 
 
 def test_attachment_storage_migration_backfills_and_constrains_legacy_rows(
@@ -340,7 +462,7 @@ async def test_database_initialize_applies_alembic_revision(
         revision = connection.execute(
             "SELECT version_num FROM alembic_version"
         ).fetchone()
-    assert revision == ("20260827_0009",)
+    assert revision == ("20260828_0011",)
 
 
 def test_existing_initial_database_upgrades_without_losing_qa_data(
@@ -405,7 +527,7 @@ def test_existing_initial_database_upgrades_without_losing_qa_data(
 
     assert project == ("LEGACY", "legacy project")
     assert test_case == ("legacy case", None)
-    assert revision == ("20260827_0009",)
+    assert revision == ("20260828_0011",)
 
 
 @pytest.mark.asyncio
