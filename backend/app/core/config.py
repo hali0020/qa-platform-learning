@@ -10,7 +10,28 @@ from dotenv import load_dotenv
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import ArgumentError
 
-load_dotenv()
+
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
+LOCAL_ENV_FILE = PROJECT_ROOT / ".env"
+SKIP_LOCAL_ENV_VARIABLE = "QA_PLATFORM_SKIP_LOCAL_ENV"
+
+
+def _load_local_environment() -> bool:
+    """Load only this repository's ignored root environment file.
+
+    Passing an exact path is intentional.  ``load_dotenv()`` without one walks
+    parent directories and could silently import an unrelated personal or
+    organization environment file when this repository has no local ``.env``.
+    Existing process variables keep precedence so launch scripts can enforce
+    a narrower safety mode.
+    """
+
+    if os.environ.get(SKIP_LOCAL_ENV_VARIABLE) == "1":
+        return False
+    return load_dotenv(dotenv_path=LOCAL_ENV_FILE, override=False)
+
+
+_load_local_environment()
 
 
 PROVIDER_RUNTIME_MODES = frozenset(

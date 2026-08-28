@@ -395,7 +395,7 @@ def test_factory_rejects_weak_or_whitespace_machine_tokens(tmp_path: Path) -> No
 @pytest.mark.parametrize(
     "database_path",
     [
-        r"\\server\share\ci-lab.db",
+        r"\\untrusted-share\ci-lab.db",
         "//server/share/ci-lab.db",
         "file:ci-lab.db",
         "sqlite:///ci-lab.db",

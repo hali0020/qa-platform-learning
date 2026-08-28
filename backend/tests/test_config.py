@@ -1,5 +1,8 @@
+from pathlib import Path
+
 import pytest
 
+import app.core.config as config_module
 from app.core.config import (
     CI_LAB_PROVIDER_SECRET_NAME,
     Settings,
@@ -7,6 +10,36 @@ from app.core.config import (
     _is_local_sqlite_url,
     _to_bool,
 )
+
+
+def test_dotenv_loader_uses_only_the_repository_root_file(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[Path, bool]] = []
+
+    def fake_load_dotenv(*, dotenv_path: Path, override: bool) -> bool:
+        calls.append((dotenv_path, override))
+        return True
+
+    monkeypatch.delenv(config_module.SKIP_LOCAL_ENV_VARIABLE, raising=False)
+    monkeypatch.setattr(config_module, "load_dotenv", fake_load_dotenv)
+
+    assert config_module._load_local_environment()
+    assert calls == [(config_module.PROJECT_ROOT / ".env", False)]
+    assert config_module.LOCAL_ENV_FILE == config_module.PROJECT_ROOT / ".env"
+
+
+def test_dotenv_loader_can_be_disabled_for_isolated_tests(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(config_module.SKIP_LOCAL_ENV_VARIABLE, "1")
+    monkeypatch.setattr(
+        config_module,
+        "load_dotenv",
+        lambda **_kwargs: pytest.fail("disabled loader must not read .env"),
+    )
+
+    assert not config_module._load_local_environment()
 
 
 def test_ci_lab_local_accepts_only_the_fixed_secret_reference() -> None:
@@ -55,7 +88,7 @@ def test_local_only_rejects_external_cors_origin() -> None:
     with pytest.raises(RuntimeError):
         Settings(
             local_only=True,
-            cors_origins=("https://example.com",),
+            cors_origins=("https://forbidden-origin.invalid",),
         ).validate_local_safety()
 
 
@@ -67,9 +100,9 @@ def test_invalid_safety_boolean_is_rejected() -> None:
 @pytest.mark.parametrize(
     "database_url",
     [
-        "postgresql+asyncpg://db.example.com/qa",
-        "mysql+aiomysql://db.example.com/qa",
-        "sqlite+aiosqlite://///fileserver/shared/qa.db",
+        "postgresql+asyncpg://forbidden-db.invalid/qa",
+        "mysql+aiomysql://forbidden-db.invalid/qa",
+        "sqlite+aiosqlite://///untrusted-share/shared/qa.db",
         "sqlite+aiosqlite:///file:qa.db?mode=rw",
     ],
 )
@@ -112,7 +145,7 @@ def test_external_database_is_rejected_even_if_http_local_only_is_disabled() -> 
     with pytest.raises(RuntimeError, match="sqlite_local"):
         Settings(
             local_only=False,
-            database_url="postgresql+asyncpg://db.example.com/qa",
+            database_url="postgresql+asyncpg://forbidden-db.invalid/qa",
         ).validate_local_safety()
 
 
@@ -130,7 +163,7 @@ def test_postgres_local_container_mode_accepts_only_internal_service() -> None:
 @pytest.mark.parametrize(
     "database_url",
     [
-        "postgresql+asyncpg://qa:secret@db.example.com:5432/qa",
+        "postgresql+asyncpg://qa:secret@forbidden-db.invalid:5432/qa",
         "postgresql+asyncpg://qa:secret@127.0.0.1:5432/qa",
         "postgresql+asyncpg://qa:secret@postgres:6432/qa",
         "postgresql+asyncpg://qa:secret@postgres/qa",
@@ -225,7 +258,7 @@ def test_postgres_mode_keeps_uploads_in_project_local_data_directory(
             app_env="local-container",
             database_runtime_mode="postgres_local_container",
             database_url="postgresql+asyncpg://qa:secret@postgres:5432/qa",
-            local_data_root=r"\\fileserver\qa-data",
+            local_data_root=r"\\untrusted-share\qa-data",
         ).validate_local_safety()
 
 
@@ -255,10 +288,10 @@ def test_external_provider_requires_dedicated_secret_allowlist() -> None:
 @pytest.mark.parametrize(
     "hosts,networks",
     [
-        (("*.example.com",), ()),
-        (("https://ci.example.com",), ()),
-        (("ci.example.com/path",), ()),
-        (("ci.example.com",), ("10.0.0.1/24",)),
+        (("*.lab.test",), ()),
+        (("https://owned-ci-lab.test",), ()),
+        (("owned-ci-lab.test/path",), ()),
+        (("owned-ci-lab.test",), ("10.0.0.1/24",)),
     ],
 )
 def test_provider_allowlists_reject_wildcards_urls_and_noncanonical_cidr(

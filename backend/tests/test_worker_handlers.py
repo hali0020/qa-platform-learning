@@ -61,7 +61,7 @@ async def test_handlers_only_perform_bounded_deterministic_local_work() -> None:
 @pytest.mark.parametrize(
     ("task_type", "payload"),
     [
-        ("qa.import.validate", {"rows": "file:///company/data.csv"}),
+        ("qa.import.validate", {"rows": "file:///untrusted/data.csv"}),
         ("qa.quality.generate", {"passed": True, "failed": 0, "skipped": 0}),
         ("qa.pipeline.poll", {"observed_status": "open-url"}),
         ("qa.device.execute", {"steps": ["subprocess"]}),

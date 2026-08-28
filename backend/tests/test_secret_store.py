@@ -166,14 +166,14 @@ def test_runtime_topology_is_exact_and_env_mode_rejects_dormant_vault() -> None:
         token="",
     )
     invalid = (
-        {"runtime_mode": "company_vault"},
+        {"runtime_mode": "unsupported_remote_vault"},
         {"runtime_mode": "env_local", "endpoint_url": "http://vault:8200"},
         {"runtime_mode": "vault_local_container", "app_env": "local"},
         {
             "runtime_mode": "vault_local_container",
             "endpoint_url": "https://vault.example.test",
         },
-        {"runtime_mode": "vault_local_container", "kv_mount": "company"},
+        {"runtime_mode": "vault_local_container", "kv_mount": "forbidden-mount"},
         {"runtime_mode": "vault_local_container", "token": "token with spaces"},
         {"runtime_mode": "vault_local_container", "max_concurrency": 17},
         {

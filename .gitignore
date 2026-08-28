@@ -5,7 +5,7 @@ __pycache__/
 .coverage
 htmlcov/
 .env*
-!.env.example
+!/.env.example
 *.pem
 *.key
 *.crt

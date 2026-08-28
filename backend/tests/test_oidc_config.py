@@ -72,7 +72,7 @@ def test_local_accounts_reject_dormant_oidc_targets() -> None:
         ),
         ("oidc_token_endpoint", "https://identity.example.test/token"),
         ("oidc_jwks_endpoint", "https://identity.example.test/jwks"),
-        ("oidc_client_id", "company-client"),
+        ("oidc_client_id", "forbidden-client"),
         (
             "oidc_redirect_uri",
             "https://attacker.example/callback",

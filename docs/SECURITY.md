@@ -16,6 +16,16 @@
 - `UPLOAD_ROOT` 必须位于所选模式的本机存储边界内：SQLite 使用数据库目录，PostgreSQL 容器使用显式 `LOCAL_DATA_ROOT=/data` 的可写本机卷；两者拒绝 UNC/URI，解析后的 `UPLOAD_ROOT` 不得越出该边界。
 - `AUTH_ENABLED=false` 只允许隔离测试环境，不能作为本机开发捷径。
 
+## 私有配置与连接清单
+
+- 根目录 `.env` 是唯一由人维护、需要复用的本机连接配置与普通实验凭据文件；它被 `.gitignore` 的 `.env*` 规则忽略，仓库只保留无私有值的 `.env.example`。前端使用同源 API，不维护第二份环境文件。
+- 平台账号、密码哈希和 QA 数据仍写入被忽略的 `.data` 数据库；Vault init/unseal/root 材料必须留在 ACL 保护的 `.data/secrets`，CI Lab 一次性 Token 留在内存或 owner-only 临时文件。不要为了集中配置而把这些运行数据或高敏感、短生命周期材料复制到 `.env`。
+- 当前仓库不包含任何指向公司或外部系统的域名、API Base URL、数据库/消息队列连接串、共享盘路径、Token 文件或机器专属绝对路径；测试拒绝样例只使用不可解析的 `.invalid`、保留的 `.test` 名称或明确标注的 `untrusted` 路径。
+- 运行代码和部署文件中允许出现的目标只有：`127.0.0.1`/`localhost`、项目固定 CI Lab 地址 `172.30.60.2:8080`，以及 Compose 内由本仓库创建的 `postgres`、`rabbitmq`、`seaweedfs`、`keycloak`、`vault`、`backend` 服务。
+- 文档中的公网网址只指向所用开源组件的官方说明、发布页或包仓库，不是应用运行时 API；应用不会自动请求这些文档网址。下载依赖或镜像是人工执行的构建动作。
+- Jenkins、GitLab 与 BK-CI 适配器是无预置地址的通用教学代码。默认模式在 Secret、DNS 和 HTTP 之前拒绝它们；日后也只允许连接我们自己安装的实验实例。
+- `backend/tests/test_connection_inventory.py` 会扫描提交的运行代码与部署配置中的常见 URL/连接串形式。新增任何不在精确本地清单中的匹配项都会使测试失败；它是运行时连接回归门禁，不替代 Secret/PII 扫描，也不要通过扩充清单来接入现有公司服务。
+
 ## 登录与权限
 
 - 没有默认账号或默认密码，首次管理员只能在本机、空用户库时创建。
