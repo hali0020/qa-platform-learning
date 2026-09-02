@@ -1,0 +1,3979 @@
+{
+  "generated_at": "2026-09-02 15:15:05 +0800",
+  "exit_status": 0,
+  "tests": [
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_public_read_paths_return_contract_status[/api/v1/health]",
+      "name": "test_public_read_paths_return_contract_status[/api/v1/health]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 2.865,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_public_read_paths_return_contract_status[/api/v1/auth/status]",
+      "name": "test_public_read_paths_return_contract_status[/api/v1/auth/status]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 704.494,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_public_read_paths_return_contract_status[/api/v1/projects]",
+      "name": "test_public_read_paths_return_contract_status[/api/v1/projects]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 711.478,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_public_read_paths_return_contract_status[/api/v1/test-suites]",
+      "name": "test_public_read_paths_return_contract_status[/api/v1/test-suites]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 633.396,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_public_read_paths_return_contract_status[/api/v1/test-cases]",
+      "name": "test_public_read_paths_return_contract_status[/api/v1/test-cases]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 620.435,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_public_read_paths_return_contract_status[/api/v1/test-case-snapshots]",
+      "name": "test_public_read_paths_return_contract_status[/api/v1/test-case-snapshots]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 680.047,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_public_read_paths_return_contract_status[/api/v1/test-plans]",
+      "name": "test_public_read_paths_return_contract_status[/api/v1/test-plans]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 622.252,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_public_read_paths_return_contract_status[/api/v1/executions]",
+      "name": "test_public_read_paths_return_contract_status[/api/v1/executions]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 789.93,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_public_read_paths_return_contract_status[/api/v1/defects]",
+      "name": "test_public_read_paths_return_contract_status[/api/v1/defects]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 843.345,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_public_read_paths_return_contract_status[/api/v1/audit-events]",
+      "name": "test_public_read_paths_return_contract_status[/api/v1/audit-events]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 708.483,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_public_read_paths_return_contract_status[/api/v1/comments]",
+      "name": "test_public_read_paths_return_contract_status[/api/v1/comments]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 6.719,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_public_read_paths_return_contract_status[/api/v1/attachments]",
+      "name": "test_public_read_paths_return_contract_status[/api/v1/attachments]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 3.856,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_public_read_paths_return_contract_status[/api/v1/quality/report]",
+      "name": "test_public_read_paths_return_contract_status[/api/v1/quality/report]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 5.096,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_public_read_paths_return_contract_status[/api/v1/quality/summary]",
+      "name": "test_public_read_paths_return_contract_status[/api/v1/quality/summary]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 4.372,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_public_read_paths_return_contract_status[/api/v1/quality/trends]",
+      "name": "test_public_read_paths_return_contract_status[/api/v1/quality/trends]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 5.288,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_public_read_paths_return_contract_status[/api/v1/quality/coverage]",
+      "name": "test_public_read_paths_return_contract_status[/api/v1/quality/coverage]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 3.967,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_public_read_paths_return_contract_status[/api/v1/pipelines]",
+      "name": "test_public_read_paths_return_contract_status[/api/v1/pipelines]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 592.729,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_public_read_paths_return_contract_status[/health/live]",
+      "name": "test_public_read_paths_return_contract_status[/health/live]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 2.762,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_public_read_paths_return_contract_status[/health/ready]",
+      "name": "test_public_read_paths_return_contract_status[/health/ready]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 11.738,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_public_read_paths_return_contract_status[/metrics]",
+      "name": "test_public_read_paths_return_contract_status[/metrics]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 584.266,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_missing_resource_paths_return_404[/api/v1/projects/{id}]",
+      "name": "test_missing_resource_paths_return_404[/api/v1/projects/{id}]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 650.869,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_missing_resource_paths_return_404[/api/v1/test-suites/{id}]",
+      "name": "test_missing_resource_paths_return_404[/api/v1/test-suites/{id}]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 553.827,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_missing_resource_paths_return_404[/api/v1/test-cases/{id}]",
+      "name": "test_missing_resource_paths_return_404[/api/v1/test-cases/{id}]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 654.458,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_missing_resource_paths_return_404[/api/v1/test-case-snapshots/{id}]",
+      "name": "test_missing_resource_paths_return_404[/api/v1/test-case-snapshots/{id}]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 1574.865,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_missing_resource_paths_return_404[/api/v1/test-plans/{id}]",
+      "name": "test_missing_resource_paths_return_404[/api/v1/test-plans/{id}]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 593.744,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_missing_resource_paths_return_404[/api/v1/executions/{id}]",
+      "name": "test_missing_resource_paths_return_404[/api/v1/executions/{id}]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 662.649,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_missing_resource_paths_return_404[/api/v1/defects/{id}]",
+      "name": "test_missing_resource_paths_return_404[/api/v1/defects/{id}]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 657.625,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_malformed_resource_ids_return_unified_422[/api/v1/projects/{id}]",
+      "name": "test_malformed_resource_ids_return_unified_422[/api/v1/projects/{id}]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 5.576,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_malformed_resource_ids_return_unified_422[/api/v1/test-suites/{id}]",
+      "name": "test_malformed_resource_ids_return_unified_422[/api/v1/test-suites/{id}]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 4.106,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_malformed_resource_ids_return_unified_422[/api/v1/test-cases/{id}]",
+      "name": "test_malformed_resource_ids_return_unified_422[/api/v1/test-cases/{id}]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 4.879,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_malformed_resource_ids_return_unified_422[/api/v1/test-case-snapshots/{id}]",
+      "name": "test_malformed_resource_ids_return_unified_422[/api/v1/test-case-snapshots/{id}]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 4.365,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_malformed_resource_ids_return_unified_422[/api/v1/test-plans/{id}]",
+      "name": "test_malformed_resource_ids_return_unified_422[/api/v1/test-plans/{id}]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 5.974,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_malformed_resource_ids_return_unified_422[/api/v1/executions/{id}]",
+      "name": "test_malformed_resource_ids_return_unified_422[/api/v1/executions/{id}]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 4.177,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_malformed_resource_ids_return_unified_422[/api/v1/defects/{id}]",
+      "name": "test_malformed_resource_ids_return_unified_422[/api/v1/defects/{id}]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 5.268,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_empty_create_payloads_are_rejected_without_500[/api/v1/projects]",
+      "name": "test_empty_create_payloads_are_rejected_without_500[/api/v1/projects]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 6.363,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_empty_create_payloads_are_rejected_without_500[/api/v1/test-suites]",
+      "name": "test_empty_create_payloads_are_rejected_without_500[/api/v1/test-suites]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 4.789,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_empty_create_payloads_are_rejected_without_500[/api/v1/test-cases]",
+      "name": "test_empty_create_payloads_are_rejected_without_500[/api/v1/test-cases]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 4.716,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_empty_create_payloads_are_rejected_without_500[/api/v1/test-case-snapshots]",
+      "name": "test_empty_create_payloads_are_rejected_without_500[/api/v1/test-case-snapshots]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 4.8,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_empty_create_payloads_are_rejected_without_500[/api/v1/test-plans]",
+      "name": "test_empty_create_payloads_are_rejected_without_500[/api/v1/test-plans]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 5.016,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_empty_create_payloads_are_rejected_without_500[/api/v1/executions]",
+      "name": "test_empty_create_payloads_are_rejected_without_500[/api/v1/executions]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 4.878,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_empty_create_payloads_are_rejected_without_500[/api/v1/defects]",
+      "name": "test_empty_create_payloads_are_rejected_without_500[/api/v1/defects]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 5.203,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_empty_create_payloads_are_rejected_without_500[/api/v1/comments]",
+      "name": "test_empty_create_payloads_are_rejected_without_500[/api/v1/comments]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 4.637,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_empty_create_payloads_are_rejected_without_500[/api/v1/attachments]",
+      "name": "test_empty_create_payloads_are_rejected_without_500[/api/v1/attachments]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 4.784,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_empty_create_payloads_are_rejected_without_500[/api/v1/pipelines]",
+      "name": "test_empty_create_payloads_are_rejected_without_500[/api/v1/pipelines]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 5.561,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_post_is_not_silently_accepted_on_read_paths[/api/v1/health]",
+      "name": "test_post_is_not_silently_accepted_on_read_paths[/api/v1/health]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 3.629,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_post_is_not_silently_accepted_on_read_paths[/api/v1/auth/status]",
+      "name": "test_post_is_not_silently_accepted_on_read_paths[/api/v1/auth/status]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 3.348,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_post_is_not_silently_accepted_on_read_paths[/api/v1/projects]",
+      "name": "test_post_is_not_silently_accepted_on_read_paths[/api/v1/projects]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 4.629,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_post_is_not_silently_accepted_on_read_paths[/api/v1/test-suites]",
+      "name": "test_post_is_not_silently_accepted_on_read_paths[/api/v1/test-suites]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 4.867,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_post_is_not_silently_accepted_on_read_paths[/api/v1/test-cases]",
+      "name": "test_post_is_not_silently_accepted_on_read_paths[/api/v1/test-cases]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 6.46,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_post_is_not_silently_accepted_on_read_paths[/api/v1/test-case-snapshots]",
+      "name": "test_post_is_not_silently_accepted_on_read_paths[/api/v1/test-case-snapshots]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 5.697,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_post_is_not_silently_accepted_on_read_paths[/api/v1/test-plans]",
+      "name": "test_post_is_not_silently_accepted_on_read_paths[/api/v1/test-plans]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 5.404,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_post_is_not_silently_accepted_on_read_paths[/api/v1/executions]",
+      "name": "test_post_is_not_silently_accepted_on_read_paths[/api/v1/executions]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 4.902,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_post_is_not_silently_accepted_on_read_paths[/api/v1/defects]",
+      "name": "test_post_is_not_silently_accepted_on_read_paths[/api/v1/defects]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 4.169,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_post_is_not_silently_accepted_on_read_paths[/api/v1/audit-events]",
+      "name": "test_post_is_not_silently_accepted_on_read_paths[/api/v1/audit-events]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 3.848,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_post_is_not_silently_accepted_on_read_paths[/api/v1/comments]",
+      "name": "test_post_is_not_silently_accepted_on_read_paths[/api/v1/comments]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 4.91,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_post_is_not_silently_accepted_on_read_paths[/api/v1/attachments]",
+      "name": "test_post_is_not_silently_accepted_on_read_paths[/api/v1/attachments]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 4.767,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_post_is_not_silently_accepted_on_read_paths[/api/v1/quality/report]",
+      "name": "test_post_is_not_silently_accepted_on_read_paths[/api/v1/quality/report]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 4.104,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_post_is_not_silently_accepted_on_read_paths[/api/v1/quality/summary]",
+      "name": "test_post_is_not_silently_accepted_on_read_paths[/api/v1/quality/summary]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 3.688,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_post_is_not_silently_accepted_on_read_paths[/api/v1/quality/trends]",
+      "name": "test_post_is_not_silently_accepted_on_read_paths[/api/v1/quality/trends]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 4.084,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_post_is_not_silently_accepted_on_read_paths[/api/v1/quality/coverage]",
+      "name": "test_post_is_not_silently_accepted_on_read_paths[/api/v1/quality/coverage]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 4.52,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_post_is_not_silently_accepted_on_read_paths[/api/v1/pipelines]",
+      "name": "test_post_is_not_silently_accepted_on_read_paths[/api/v1/pipelines]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 4.924,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_post_is_not_silently_accepted_on_read_paths[/health/live]",
+      "name": "test_post_is_not_silently_accepted_on_read_paths[/health/live]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 3.269,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_post_is_not_silently_accepted_on_read_paths[/health/ready]",
+      "name": "test_post_is_not_silently_accepted_on_read_paths[/health/ready]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 2.85,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_unknown_paths_return_404[/api/v2/projects]",
+      "name": "test_unknown_paths_return_404[/api/v2/projects]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 4.315,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_unknown_paths_return_404[/api/v1/unknown]",
+      "name": "test_unknown_paths_return_404[/api/v1/unknown]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 3.294,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_unknown_paths_return_404[/unknown]",
+      "name": "test_unknown_paths_return_404[/unknown]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 4.34,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_unknown_paths_return_404[/api/v1/projects/not-a-uuid/extra]",
+      "name": "test_unknown_paths_return_404[/api/v1/projects/not-a-uuid/extra]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 3.334,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_project_status_filter_validates_enum[active]",
+      "name": "test_project_status_filter_validates_enum[active]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 568.323,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_project_status_filter_validates_enum[archived]",
+      "name": "test_project_status_filter_validates_enum[archived]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 537.971,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_project_status_filter_validates_enum[invalid-status]",
+      "name": "test_project_status_filter_validates_enum[invalid-status]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 4.828,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_project_status_filter_validates_enum[]",
+      "name": "test_project_status_filter_validates_enum[]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 6.986,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_project_status_filter_validates_enum[ACTIVE]",
+      "name": "test_project_status_filter_validates_enum[ACTIVE]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 4.164,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_downloadable_templates_have_safe_headers[csv-test-cases]",
+      "name": "test_downloadable_templates_have_safe_headers[csv-test-cases]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 6.878,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_downloadable_templates_have_safe_headers[csv-defects]",
+      "name": "test_downloadable_templates_have_safe_headers[csv-defects]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 7.025,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_downloadable_templates_have_safe_headers[xlsx-test-cases]",
+      "name": "test_downloadable_templates_have_safe_headers[xlsx-test-cases]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 268.218,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_downloadable_templates_have_safe_headers[xlsx-defects]",
+      "name": "test_downloadable_templates_have_safe_headers[xlsx-defects]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 15.448,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_template_entity_enum_rejects_unknown_values[unknown]",
+      "name": "test_template_entity_enum_rejects_unknown_values[unknown]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 6.051,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_template_entity_enum_rejects_unknown_values[projects]",
+      "name": "test_template_entity_enum_rejects_unknown_values[projects]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 5.092,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_template_entity_enum_rejects_unknown_values[test_cases]",
+      "name": "test_template_entity_enum_rejects_unknown_values[test_cases]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 4.559,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_template_format_enum_is_strict[json]",
+      "name": "test_template_format_enum_is_strict[json]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 5.367,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_template_format_enum_is_strict[xls]",
+      "name": "test_template_format_enum_is_strict[xls]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 5.092,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_template_format_enum_is_strict[]",
+      "name": "test_template_format_enum_is_strict[]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 4.594,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_api_path_matrix.py::test_template_format_enum_is_strict[CSV]",
+      "name": "test_template_format_enum_is_strict[CSV]",
+      "area": "API 路径矩阵",
+      "outcome": "passed",
+      "duration_ms": 4.558,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[GET /api/v1/health]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[GET /api/v1/health]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 3.996,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[GET /api/v1/auth/status]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[GET /api/v1/auth/status]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 671.137,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[POST /api/v1/auth/setup]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[POST /api/v1/auth/setup]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 4.352,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[POST /api/v1/auth/login]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[POST /api/v1/auth/login]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 5.172,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[GET /api/v1/auth/oidc/start]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[GET /api/v1/auth/oidc/start]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 4.784,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[GET /api/v1/auth/oidc/callback]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[GET /api/v1/auth/oidc/callback]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 5.148,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[GET /api/v1/auth/me]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[GET /api/v1/auth/me]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 535.995,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[POST /api/v1/auth/logout]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[POST /api/v1/auth/logout]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 4.544,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[POST /api/v1/auth/change-password]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[POST /api/v1/auth/change-password]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 4.656,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[GET /api/v1/roles]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[GET /api/v1/roles]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 547.688,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[GET /api/v1/users]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[GET /api/v1/users]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 534.552,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[POST /api/v1/users]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[POST /api/v1/users]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 5.924,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[PATCH /api/v1/users/{user_id}]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[PATCH /api/v1/users/{user_id}]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 664.024,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[POST /api/v1/users/{user_id}/reset-password]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[POST /api/v1/users/{user_id}/reset-password]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 5.725,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[POST /api/v1/users/{user_id}/revoke-sessions]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[POST /api/v1/users/{user_id}/revoke-sessions]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 682.484,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[POST /api/v1/users/{user_id}/oidc-binding]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[POST /api/v1/users/{user_id}/oidc-binding]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 9.829,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[POST /api/v1/projects]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[POST /api/v1/projects]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 4.734,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[GET /api/v1/projects]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[GET /api/v1/projects]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 667.835,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[GET /api/v1/projects/{project_id}]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[GET /api/v1/projects/{project_id}]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 535.203,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[PATCH /api/v1/projects/{project_id}]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[PATCH /api/v1/projects/{project_id}]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 661.111,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[POST /api/v1/projects/{project_id}/transition]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[POST /api/v1/projects/{project_id}/transition]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 5.638,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[DELETE /api/v1/projects/{project_id}]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[DELETE /api/v1/projects/{project_id}]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 634.969,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[POST /api/v1/test-cases]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[POST /api/v1/test-cases]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 5.107,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[GET /api/v1/test-cases]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[GET /api/v1/test-cases]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 575.199,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[GET /api/v1/test-cases/{case_id}]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[GET /api/v1/test-cases/{case_id}]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 575.868,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[PATCH /api/v1/test-cases/{case_id}]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[PATCH /api/v1/test-cases/{case_id}]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 601.711,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[POST /api/v1/test-cases/{case_id}/transition]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[POST /api/v1/test-cases/{case_id}/transition]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 5.896,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[DELETE /api/v1/test-cases/{case_id}]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[DELETE /api/v1/test-cases/{case_id}]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 604.583,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[POST /api/v1/test-suites]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[POST /api/v1/test-suites]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 7.034,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[GET /api/v1/test-suites]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[GET /api/v1/test-suites]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 777.991,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[GET /api/v1/test-suites/{suite_id}]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[GET /api/v1/test-suites/{suite_id}]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 758.103,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[PATCH /api/v1/test-suites/{suite_id}]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[PATCH /api/v1/test-suites/{suite_id}]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 629.485,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[POST /api/v1/test-suites/{suite_id}/transition]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[POST /api/v1/test-suites/{suite_id}/transition]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 7.211,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[DELETE /api/v1/test-suites/{suite_id}]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[DELETE /api/v1/test-suites/{suite_id}]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 599.945,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[POST /api/v1/test-case-snapshots]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[POST /api/v1/test-case-snapshots]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 7.586,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[GET /api/v1/test-case-snapshots]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[GET /api/v1/test-case-snapshots]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 677.457,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[GET /api/v1/test-case-snapshots/{snapshot_id}]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[GET /api/v1/test-case-snapshots/{snapshot_id}]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 660.58,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[POST /api/v1/test-plans]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[POST /api/v1/test-plans]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 5.844,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[GET /api/v1/test-plans]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[GET /api/v1/test-plans]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 787.407,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[GET /api/v1/test-plans/{plan_id}]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[GET /api/v1/test-plans/{plan_id}]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 759.973,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[PATCH /api/v1/test-plans/{plan_id}]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[PATCH /api/v1/test-plans/{plan_id}]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 628.355,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[POST /api/v1/test-plans/{plan_id}/transition]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[POST /api/v1/test-plans/{plan_id}/transition]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 5.761,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[DELETE /api/v1/test-plans/{plan_id}]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[DELETE /api/v1/test-plans/{plan_id}]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 607.082,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[POST /api/v1/executions]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[POST /api/v1/executions]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 5.655,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[GET /api/v1/executions]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[GET /api/v1/executions]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 597.076,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[GET /api/v1/executions/{execution_id}]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[GET /api/v1/executions/{execution_id}]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 624.938,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[POST /api/v1/executions/{execution_id}/transition]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[POST /api/v1/executions/{execution_id}/transition]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 6.797,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[PUT /api/v1/executions/{execution_id}/results/{case_id}]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[PUT /api/v1/executions/{execution_id}/results/{case_id}]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 6.897,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[DELETE /api/v1/executions/{execution_id}]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[DELETE /api/v1/executions/{execution_id}]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 639.539,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[POST /api/v1/defects]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[POST /api/v1/defects]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 12.427,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[GET /api/v1/defects]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[GET /api/v1/defects]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 735.332,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[GET /api/v1/defects/{defect_id}]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[GET /api/v1/defects/{defect_id}]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 654.765,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[PATCH /api/v1/defects/{defect_id}]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[PATCH /api/v1/defects/{defect_id}]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 566.813,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[POST /api/v1/defects/{defect_id}/transition]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[POST /api/v1/defects/{defect_id}/transition]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 6.914,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[GET /api/v1/audit-events]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[GET /api/v1/audit-events]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 554.877,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[GET /api/v1/data-transfer/templates/{entity}]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[GET /api/v1/data-transfer/templates/{entity}]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 7.802,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[POST /api/v1/data-transfer/imports/{entity}/preview]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[POST /api/v1/data-transfer/imports/{entity}/preview]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 7.193,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[POST /api/v1/data-transfer/imports/{entity}]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[POST /api/v1/data-transfer/imports/{entity}]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 9.474,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[GET /api/v1/data-transfer/exports/{entity}]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[GET /api/v1/data-transfer/exports/{entity}]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 8.179,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[GET /api/v1/quality/report]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[GET /api/v1/quality/report]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 7.43,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[GET /api/v1/quality/summary]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[GET /api/v1/quality/summary]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 7.587,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[GET /api/v1/quality/trends]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[GET /api/v1/quality/trends]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 7.455,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[GET /api/v1/quality/coverage]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[GET /api/v1/quality/coverage]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 7.722,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[GET /api/v1/comments]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[GET /api/v1/comments]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 9.74,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[POST /api/v1/comments]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[POST /api/v1/comments]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 7.999,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[PATCH /api/v1/comments/{comment_id}]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[PATCH /api/v1/comments/{comment_id}]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 7.693,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[DELETE /api/v1/comments/{comment_id}]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[DELETE /api/v1/comments/{comment_id}]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 688.082,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[GET /api/v1/attachments]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[GET /api/v1/attachments]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 8.172,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[POST /api/v1/attachments]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[POST /api/v1/attachments]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 8.366,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[GET /api/v1/attachments/{attachment_id}/content]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[GET /api/v1/attachments/{attachment_id}/content]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 787.777,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[DELETE /api/v1/attachments/{attachment_id}]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[DELETE /api/v1/attachments/{attachment_id}]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 569.907,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[POST /api/v1/pipelines]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[POST /api/v1/pipelines]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 7.546,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[GET /api/v1/pipelines]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[GET /api/v1/pipelines]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 552.466,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[GET /api/v1/pipelines/{run_id}]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[GET /api/v1/pipelines/{run_id}]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 651.393,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[POST /api/v1/pipelines/{run_id}/cancel]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[POST /api/v1/pipelines/{run_id}/cancel]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 536.209,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[POST /api/v1/pipelines/{run_id}/callbacks]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[POST /api/v1/pipelines/{run_id}/callbacks]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 7.407,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[GET /api/v1/integrations/connections/runtime-status]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[GET /api/v1/integrations/connections/runtime-status]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 7.756,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[GET /api/v1/integrations/connections]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[GET /api/v1/integrations/connections]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 720.448,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[POST /api/v1/integrations/connections]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[POST /api/v1/integrations/connections]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 9.111,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[GET /api/v1/integrations/connections/{connection_id}]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[GET /api/v1/integrations/connections/{connection_id}]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 643.93,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[PATCH /api/v1/integrations/connections/{connection_id}]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[PATCH /api/v1/integrations/connections/{connection_id}]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 12.055,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[DELETE /api/v1/integrations/connections/{connection_id}]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[DELETE /api/v1/integrations/connections/{connection_id}]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 666.023,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[POST /api/v1/integrations/connections/{connection_id}/test]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[POST /api/v1/integrations/connections/{connection_id}/test]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 605.94,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[POST /api/v1/integrations/connections/{connection_id}/trigger]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[POST /api/v1/integrations/connections/{connection_id}/trigger]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 654.601,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[GET /api/v1/integrations/connections/trigger-intents/all]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[GET /api/v1/integrations/connections/trigger-intents/all]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 657.242,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[POST /api/v1/integrations/connections/trigger-intents/dispatch-one]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[POST /api/v1/integrations/connections/trigger-intents/dispatch-one]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 657.998,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[GET /api/v1/integrations/connections/{connection_id}/runs]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[GET /api/v1/integrations/connections/{connection_id}/runs]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 555.989,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[GET /api/v1/integrations/connections/{connection_id}/runs/{run_id}]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[GET /api/v1/integrations/connections/{connection_id}/runs/{run_id}]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 770.515,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[POST /api/v1/integrations/connections/{connection_id}/runs/{run_id}/cancel]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[POST /api/v1/integrations/connections/{connection_id}/runs/{run_id}/cancel]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 690.523,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[POST /api/v1/integrations/connections/{connection_id}/runs/{run_id}/gate-decisions]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[POST /api/v1/integrations/connections/{connection_id}/runs/{run_id}/gate-decisions]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 9.601,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[POST /api/v1/webhooks/learning-ci/{connection_id}]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[POST /api/v1/webhooks/learning-ci/{connection_id}]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 616.571,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[GET /api/v1/integrations/connections/{connection_id}/runs/{run_id}/artifacts]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[GET /api/v1/integrations/connections/{connection_id}/runs/{run_id}/artifacts]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 672.26,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[POST /api/v1/integrations/connections/{connection_id}/runs/{run_id}/artifacts]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[POST /api/v1/integrations/connections/{connection_id}/runs/{run_id}/artifacts]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 10.118,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[GET /api/v1/integrations/connections/{connection_id}/runs/{run_id}/artifacts/{artifact_id}/content]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[GET /api/v1/integrations/connections/{connection_id}/runs/{run_id}/artifacts/{artifact_id}/content]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 665.788,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[DELETE /api/v1/integrations/connections/{connection_id}/runs/{run_id}/artifacts/{artifact_id}]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[DELETE /api/v1/integrations/connections/{connection_id}/runs/{run_id}/artifacts/{artifact_id}]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 613.632,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[GET /api/v1/automation/tasks]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[GET /api/v1/automation/tasks]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 933.365,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[GET /api/v1/automation/tasks/wakeup-outbox]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[GET /api/v1/automation/tasks/wakeup-outbox]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 547.122,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[POST /api/v1/automation/tasks]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[POST /api/v1/automation/tasks]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 11.683,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[POST /api/v1/automation/tasks/claim]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[POST /api/v1/automation/tasks/claim]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 8.985,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[GET /api/v1/automation/tasks/{task_id}]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[GET /api/v1/automation/tasks/{task_id}]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 561.41,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[POST /api/v1/automation/tasks/{task_id}/heartbeat]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[POST /api/v1/automation/tasks/{task_id}/heartbeat]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 9.449,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[POST /api/v1/automation/tasks/{task_id}/complete]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[POST /api/v1/automation/tasks/{task_id}/complete]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 18.234,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[POST /api/v1/automation/tasks/{task_id}/fail]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[POST /api/v1/automation/tasks/{task_id}/fail]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 9.141,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[POST /api/v1/automation/tasks/{task_id}/cancel]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[POST /api/v1/automation/tasks/{task_id}/cancel]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 938.187,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[POST /api/v1/automation/tasks/{task_id}/retry]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[POST /api/v1/automation/tasks/{task_id}/retry]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 610.295,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[POST /api/v1/automation/tasks/{task_id}/dead-letter]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[POST /api/v1/automation/tasks/{task_id}/dead-letter]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 686.574,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[GET /api/v1/automation/devices]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[GET /api/v1/automation/devices]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 553.664,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[POST /api/v1/automation/devices]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[POST /api/v1/automation/devices]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 9.682,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[POST /api/v1/automation/devices/acquire]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[POST /api/v1/automation/devices/acquire]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 9.921,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[POST /api/v1/automation/devices/leases/{lease_id}/start]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[POST /api/v1/automation/devices/leases/{lease_id}/start]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 8.515,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[POST /api/v1/automation/devices/leases/{lease_id}/renew]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[POST /api/v1/automation/devices/leases/{lease_id}/renew]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 9.285,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[POST /api/v1/automation/devices/leases/{lease_id}/release]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[POST /api/v1/automation/devices/leases/{lease_id}/release]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 9.414,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[GET /api/v1/automation/devices/{device_id}]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[GET /api/v1/automation/devices/{device_id}]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 589.84,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[PATCH /api/v1/automation/devices/{device_id}]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[PATCH /api/v1/automation/devices/{device_id}]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 10.268,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[DELETE /api/v1/automation/devices/{device_id}]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[DELETE /api/v1/automation/devices/{device_id}]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 639.925,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[POST /api/v1/automation/devices/{device_id}/heartbeat]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[POST /api/v1/automation/devices/{device_id}/heartbeat]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 21.961,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[GET /api/v1/automation/schedules]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[GET /api/v1/automation/schedules]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 711.646,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[POST /api/v1/automation/schedules]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[POST /api/v1/automation/schedules]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 19.962,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[POST /api/v1/automation/schedules/tick]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[POST /api/v1/automation/schedules/tick]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 569.928,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[GET /api/v1/automation/schedules/{schedule_id}]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[GET /api/v1/automation/schedules/{schedule_id}]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 561.576,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[PATCH /api/v1/automation/schedules/{schedule_id}]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[PATCH /api/v1/automation/schedules/{schedule_id}]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 9.244,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[DELETE /api/v1/automation/schedules/{schedule_id}]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[DELETE /api/v1/automation/schedules/{schedule_id}]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 584.778,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[POST /api/v1/automation/schedules/{schedule_id}/run-now]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[POST /api/v1/automation/schedules/{schedule_id}/run-now]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 598.884,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[GET /api/v1/automation/schedules/{schedule_id}/fires]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[GET /api/v1/automation/schedules/{schedule_id}/fires]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 552.669,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[GET /health/live]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[GET /health/live]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 7.89,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[GET /health/ready]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[GET /health/ready]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 15.864,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_complete_operation_surface.py::test_every_public_operation_is_addressable_without_server_error[GET /metrics]",
+      "name": "test_every_public_operation_is_addressable_without_server_error[GET /metrics]",
+      "area": "完整操作面触达",
+      "outcome": "passed",
+      "duration_ms": 543.438,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_core_journeys.py::test_project_case_plan_execution_quality_end_to_end",
+      "name": "test_project_case_plan_execution_quality_end_to_end",
+      "area": "核心业务旅程",
+      "outcome": "passed",
+      "duration_ms": 839.159,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_core_journeys.py::test_lifecycle_rejects_shortcuts_and_backwards_transitions",
+      "name": "test_lifecycle_rejects_shortcuts_and_backwards_transitions",
+      "area": "核心业务旅程",
+      "outcome": "passed",
+      "duration_ms": 654.442,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_core_journeys.py::test_duplicate_project_key_and_referenced_delete_are_conflicts",
+      "name": "test_duplicate_project_key_and_referenced_delete_are_conflicts",
+      "area": "核心业务旅程",
+      "outcome": "passed",
+      "duration_ms": 904.957,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_core_journeys.py::test_execution_result_status_transition_contract[passed]",
+      "name": "test_execution_result_status_transition_contract[passed]",
+      "area": "核心业务旅程",
+      "outcome": "passed",
+      "duration_ms": 769.645,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_core_journeys.py::test_execution_result_status_transition_contract[failed]",
+      "name": "test_execution_result_status_transition_contract[failed]",
+      "area": "核心业务旅程",
+      "outcome": "passed",
+      "duration_ms": 1130.026,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_core_journeys.py::test_execution_result_status_transition_contract[blocked]",
+      "name": "test_execution_result_status_transition_contract[blocked]",
+      "area": "核心业务旅程",
+      "outcome": "passed",
+      "duration_ms": 704.776,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_core_journeys.py::test_execution_result_status_transition_contract[skipped]",
+      "name": "test_execution_result_status_transition_contract[skipped]",
+      "area": "核心业务旅程",
+      "outcome": "passed",
+      "duration_ms": 864.015,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_core_journeys.py::test_execution_result_status_transition_contract[not_run]",
+      "name": "test_execution_result_status_transition_contract[not_run]",
+      "area": "核心业务旅程",
+      "outcome": "passed",
+      "duration_ms": 850.424,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_cross_cutting_contracts.py::test_request_id_accepts_only_safe_bounded_values[learning-run-001-True]",
+      "name": "test_request_id_accepts_only_safe_bounded_values[learning-run-001-True]",
+      "area": "横切质量属性",
+      "outcome": "passed",
+      "duration_ms": 13.126,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_cross_cutting_contracts.py::test_request_id_accepts_only_safe_bounded_values[A_B.C-123-True]",
+      "name": "test_request_id_accepts_only_safe_bounded_values[A_B.C-123-True]",
+      "area": "横切质量属性",
+      "outcome": "passed",
+      "duration_ms": 8.952,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_cross_cutting_contracts.py::test_request_id_accepts_only_safe_bounded_values[has space-False]",
+      "name": "test_request_id_accepts_only_safe_bounded_values[has space-False]",
+      "area": "横切质量属性",
+      "outcome": "passed",
+      "duration_ms": 10.452,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_cross_cutting_contracts.py::test_request_id_accepts_only_safe_bounded_values[has/slash-False]",
+      "name": "test_request_id_accepts_only_safe_bounded_values[has/slash-False]",
+      "area": "横切质量属性",
+      "outcome": "passed",
+      "duration_ms": 11.747,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_cross_cutting_contracts.py::test_request_id_accepts_only_safe_bounded_values[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-False]",
+      "name": "test_request_id_accepts_only_safe_bounded_values[xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx-False]",
+      "area": "横切质量属性",
+      "outcome": "passed",
+      "duration_ms": 9.083,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_cross_cutting_contracts.py::test_validation_failures_use_unified_shape[payload0]",
+      "name": "test_validation_failures_use_unified_shape[payload0]",
+      "area": "横切质量属性",
+      "outcome": "passed",
+      "duration_ms": 12.842,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_cross_cutting_contracts.py::test_validation_failures_use_unified_shape[payload1]",
+      "name": "test_validation_failures_use_unified_shape[payload1]",
+      "area": "横切质量属性",
+      "outcome": "passed",
+      "duration_ms": 9.895,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_cross_cutting_contracts.py::test_validation_failures_use_unified_shape[payload2]",
+      "name": "test_validation_failures_use_unified_shape[payload2]",
+      "area": "横切质量属性",
+      "outcome": "passed",
+      "duration_ms": 10.148,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_cross_cutting_contracts.py::test_validation_failures_use_unified_shape[payload3]",
+      "name": "test_validation_failures_use_unified_shape[payload3]",
+      "area": "横切质量属性",
+      "outcome": "passed",
+      "duration_ms": 10.609,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_cross_cutting_contracts.py::test_validation_failures_use_unified_shape[payload4]",
+      "name": "test_validation_failures_use_unified_shape[payload4]",
+      "area": "横切质量属性",
+      "outcome": "passed",
+      "duration_ms": 10.053,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_cross_cutting_contracts.py::test_metrics_excludes_own_scrape_and_uses_route_template",
+      "name": "test_metrics_excludes_own_scrape_and_uses_route_template",
+      "area": "横切质量属性",
+      "outcome": "passed",
+      "duration_ms": 713.962,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_cross_cutting_contracts.py::test_cors_preflight_never_reflects_untrusted_origin[http://localhost:5173]",
+      "name": "test_cors_preflight_never_reflects_untrusted_origin[http://localhost:5173]",
+      "area": "横切质量属性",
+      "outcome": "passed",
+      "duration_ms": 8.066,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_cross_cutting_contracts.py::test_cors_preflight_never_reflects_untrusted_origin[https://evil.example]",
+      "name": "test_cors_preflight_never_reflects_untrusted_origin[https://evil.example]",
+      "area": "横切质量属性",
+      "outcome": "passed",
+      "duration_ms": 8.295,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_cross_cutting_contracts.py::test_head_does_not_mutate_get_endpoints[/api/v1/projects]",
+      "name": "test_head_does_not_mutate_get_endpoints[/api/v1/projects]",
+      "area": "横切质量属性",
+      "outcome": "passed",
+      "duration_ms": 9.034,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_cross_cutting_contracts.py::test_head_does_not_mutate_get_endpoints[/api/v1/test-cases]",
+      "name": "test_head_does_not_mutate_get_endpoints[/api/v1/test-cases]",
+      "area": "横切质量属性",
+      "outcome": "passed",
+      "duration_ms": 7.871,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_cross_cutting_contracts.py::test_head_does_not_mutate_get_endpoints[/api/v1/quality/summary]",
+      "name": "test_head_does_not_mutate_get_endpoints[/api/v1/quality/summary]",
+      "area": "横切质量属性",
+      "outcome": "passed",
+      "duration_ms": 8.065,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_cross_cutting_contracts.py::test_head_does_not_mutate_get_endpoints[/metrics]",
+      "name": "test_head_does_not_mutate_get_endpoints[/metrics]",
+      "area": "横切质量属性",
+      "outcome": "passed",
+      "duration_ms": 8.971,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_cross_cutting_contracts.py::test_health_response_contains_only_safe_environment_metadata",
+      "name": "test_health_response_contains_only_safe_environment_metadata",
+      "area": "横切质量属性",
+      "outcome": "passed",
+      "duration_ms": 10.344,
+      "error": ""
+    },
+    {
+      "nodeid": "pytest/test_cross_cutting_contracts.py::test_metrics_labels_do_not_contain_request_id",
+      "name": "test_metrics_labels_do_not_contain_request_id",
+      "area": "横切质量属性",
+      "outcome": "passed",
+      "duration_ms": 607.877,
+      "error": ""
+    }
+  ],
+  "http_observations": [
+    {
+      "method": "GET",
+      "path": "/api/v1/health",
+      "route_template": "/api/v1/health",
+      "status_code": 200,
+      "duration_ms": 2.479
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/auth/status",
+      "route_template": "/api/v1/auth/status",
+      "status_code": 200,
+      "duration_ms": 703.906
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects",
+      "route_template": "/api/v1/projects",
+      "status_code": 200,
+      "duration_ms": 710.965
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/test-suites",
+      "route_template": "/api/v1/test-suites",
+      "status_code": 200,
+      "duration_ms": 632.919
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/test-cases",
+      "route_template": "/api/v1/test-cases",
+      "status_code": 200,
+      "duration_ms": 619.505
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/test-case-snapshots",
+      "route_template": "/api/v1/test-case-snapshots",
+      "status_code": 200,
+      "duration_ms": 679.547
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/test-plans",
+      "route_template": "/api/v1/test-plans",
+      "status_code": 200,
+      "duration_ms": 621.769
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions",
+      "route_template": "/api/v1/executions",
+      "status_code": 200,
+      "duration_ms": 789.369
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/defects",
+      "route_template": "/api/v1/defects",
+      "status_code": 200,
+      "duration_ms": 842.479
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/audit-events",
+      "route_template": "/api/v1/audit-events",
+      "status_code": 200,
+      "duration_ms": 707.519
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/comments",
+      "route_template": "/api/v1/comments",
+      "status_code": 422,
+      "duration_ms": 5.841
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/attachments",
+      "route_template": "/api/v1/attachments",
+      "status_code": 422,
+      "duration_ms": 3.314
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/quality/report",
+      "route_template": "/api/v1/quality/report",
+      "status_code": 422,
+      "duration_ms": 4.44
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/quality/summary",
+      "route_template": "/api/v1/quality/summary",
+      "status_code": 422,
+      "duration_ms": 3.869
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/quality/trends",
+      "route_template": "/api/v1/quality/trends",
+      "status_code": 422,
+      "duration_ms": 4.618
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/quality/coverage",
+      "route_template": "/api/v1/quality/coverage",
+      "status_code": 422,
+      "duration_ms": 3.507
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/pipelines",
+      "route_template": "/api/v1/pipelines",
+      "status_code": 200,
+      "duration_ms": 592.206
+    },
+    {
+      "method": "GET",
+      "path": "/health/live",
+      "route_template": "/health/live",
+      "status_code": 200,
+      "duration_ms": 2.299
+    },
+    {
+      "method": "GET",
+      "path": "/health/ready",
+      "route_template": "/health/ready",
+      "status_code": 200,
+      "duration_ms": 11.21
+    },
+    {
+      "method": "GET",
+      "path": "/metrics",
+      "route_template": "/metrics",
+      "status_code": 200,
+      "duration_ms": 583.705
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/63b35782-1c20-4e7b-8ffd-bbbd582cf7a0",
+      "route_template": "/api/v1/projects/{project_id}",
+      "status_code": 404,
+      "duration_ms": 649.87
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/test-suites/a33034d7-6099-4a32-a2ba-989effee58c6",
+      "route_template": "/api/v1/test-suites/{suite_id}",
+      "status_code": 404,
+      "duration_ms": 553.327
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/test-cases/a31c6495-af2b-4f83-91b9-9f94ea2c8d59",
+      "route_template": "/api/v1/test-cases/{case_id}",
+      "status_code": 404,
+      "duration_ms": 653.918
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/test-case-snapshots/bdb60a5e-df18-42d5-9450-655ff84781e3",
+      "route_template": "/api/v1/test-case-snapshots/{snapshot_id}",
+      "status_code": 404,
+      "duration_ms": 1574.278
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/test-plans/1b904807-8759-4079-8e32-88856db11f9b",
+      "route_template": "/api/v1/test-plans/{plan_id}",
+      "status_code": 404,
+      "duration_ms": 593.199
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/8694b630-b4be-4167-9d6a-e1059186acb1",
+      "route_template": "/api/v1/executions/{execution_id}",
+      "status_code": 404,
+      "duration_ms": 661.848
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/defects/de952731-cd1e-40c2-b64c-203e83d20f60",
+      "route_template": "/api/v1/defects/{defect_id}",
+      "status_code": 404,
+      "duration_ms": 656.898
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/not-a-uuid",
+      "route_template": "/api/v1/projects/{project_id}",
+      "status_code": 422,
+      "duration_ms": 4.981
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/test-suites/not-a-uuid",
+      "route_template": "/api/v1/test-suites/{suite_id}",
+      "status_code": 422,
+      "duration_ms": 3.534
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/test-cases/not-a-uuid",
+      "route_template": "/api/v1/test-cases/{case_id}",
+      "status_code": 422,
+      "duration_ms": 3.886
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/test-case-snapshots/not-a-uuid",
+      "route_template": "/api/v1/test-case-snapshots/{snapshot_id}",
+      "status_code": 422,
+      "duration_ms": 3.879
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/test-plans/not-a-uuid",
+      "route_template": "/api/v1/test-plans/{plan_id}",
+      "status_code": 422,
+      "duration_ms": 5.461
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/not-a-uuid",
+      "route_template": "/api/v1/executions/{execution_id}",
+      "status_code": 422,
+      "duration_ms": 3.605
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/defects/not-a-uuid",
+      "route_template": "/api/v1/defects/{defect_id}",
+      "status_code": 422,
+      "duration_ms": 4.721
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects",
+      "route_template": "/api/v1/projects",
+      "status_code": 422,
+      "duration_ms": 5.719
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/test-suites",
+      "route_template": "/api/v1/test-suites",
+      "status_code": 422,
+      "duration_ms": 4.347
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/test-cases",
+      "route_template": "/api/v1/test-cases",
+      "status_code": 422,
+      "duration_ms": 4.279
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/test-case-snapshots",
+      "route_template": "/api/v1/test-case-snapshots",
+      "status_code": 422,
+      "duration_ms": 4.061
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/test-plans",
+      "route_template": "/api/v1/test-plans",
+      "status_code": 422,
+      "duration_ms": 4.549
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/executions",
+      "route_template": "/api/v1/executions",
+      "status_code": 422,
+      "duration_ms": 4.396
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/defects",
+      "route_template": "/api/v1/defects",
+      "status_code": 422,
+      "duration_ms": 4.529
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/comments",
+      "route_template": "/api/v1/comments",
+      "status_code": 422,
+      "duration_ms": 4.153
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/attachments",
+      "route_template": "/api/v1/attachments",
+      "status_code": 422,
+      "duration_ms": 4.163
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/pipelines",
+      "route_template": "/api/v1/pipelines",
+      "status_code": 422,
+      "duration_ms": 5.081
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/health",
+      "route_template": "/api/v1/health",
+      "status_code": 405,
+      "duration_ms": 3.036
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/auth/status",
+      "route_template": "/api/v1/auth/status",
+      "status_code": 405,
+      "duration_ms": 2.809
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects",
+      "route_template": "/api/v1/projects",
+      "status_code": 422,
+      "duration_ms": 4.058
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/test-suites",
+      "route_template": "/api/v1/test-suites",
+      "status_code": 422,
+      "duration_ms": 4.261
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/test-cases",
+      "route_template": "/api/v1/test-cases",
+      "status_code": 422,
+      "duration_ms": 5.647
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/test-case-snapshots",
+      "route_template": "/api/v1/test-case-snapshots",
+      "status_code": 422,
+      "duration_ms": 5.162
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/test-plans",
+      "route_template": "/api/v1/test-plans",
+      "status_code": 422,
+      "duration_ms": 4.359
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/executions",
+      "route_template": "/api/v1/executions",
+      "status_code": 422,
+      "duration_ms": 4.387
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/defects",
+      "route_template": "/api/v1/defects",
+      "status_code": 422,
+      "duration_ms": 3.56
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/audit-events",
+      "route_template": "/api/v1/audit-events",
+      "status_code": 405,
+      "duration_ms": 3.056
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/comments",
+      "route_template": "/api/v1/comments",
+      "status_code": 422,
+      "duration_ms": 4.397
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/attachments",
+      "route_template": "/api/v1/attachments",
+      "status_code": 422,
+      "duration_ms": 4.231
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/quality/report",
+      "route_template": "/api/v1/quality/report",
+      "status_code": 405,
+      "duration_ms": 3.155
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/quality/summary",
+      "route_template": "/api/v1/quality/summary",
+      "status_code": 405,
+      "duration_ms": 3.031
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/quality/trends",
+      "route_template": "/api/v1/quality/trends",
+      "status_code": 405,
+      "duration_ms": 3.092
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/quality/coverage",
+      "route_template": "/api/v1/quality/coverage",
+      "status_code": 405,
+      "duration_ms": 3.757
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/pipelines",
+      "route_template": "/api/v1/pipelines",
+      "status_code": 422,
+      "duration_ms": 4.42
+    },
+    {
+      "method": "POST",
+      "path": "/health/live",
+      "route_template": "/health/live",
+      "status_code": 405,
+      "duration_ms": 2.561
+    },
+    {
+      "method": "POST",
+      "path": "/health/ready",
+      "route_template": "/health/ready",
+      "status_code": 405,
+      "duration_ms": 2.426
+    },
+    {
+      "method": "GET",
+      "path": "/api/v2/projects",
+      "route_template": "/api/v2/projects",
+      "status_code": 404,
+      "duration_ms": 3.632
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/unknown",
+      "route_template": "/api/v1/unknown",
+      "status_code": 404,
+      "duration_ms": 2.701
+    },
+    {
+      "method": "GET",
+      "path": "/unknown",
+      "route_template": "/unknown",
+      "status_code": 404,
+      "duration_ms": 3.648
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/not-a-uuid/extra",
+      "route_template": "/api/v1/projects/not-a-uuid/extra",
+      "status_code": 404,
+      "duration_ms": 2.851
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects",
+      "route_template": "/api/v1/projects",
+      "status_code": 200,
+      "duration_ms": 567.869
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects",
+      "route_template": "/api/v1/projects",
+      "status_code": 200,
+      "duration_ms": 537.523
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects",
+      "route_template": "/api/v1/projects",
+      "status_code": 422,
+      "duration_ms": 4.371
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects",
+      "route_template": "/api/v1/projects",
+      "status_code": 422,
+      "duration_ms": 6.149
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects",
+      "route_template": "/api/v1/projects",
+      "status_code": 422,
+      "duration_ms": 3.533
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/data-transfer/templates/test-cases",
+      "route_template": "/api/v1/data-transfer/templates/{entity}",
+      "status_code": 200,
+      "duration_ms": 6.414
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/data-transfer/templates/defects",
+      "route_template": "/api/v1/data-transfer/templates/{entity}",
+      "status_code": 200,
+      "duration_ms": 6.45
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/data-transfer/templates/test-cases",
+      "route_template": "/api/v1/data-transfer/templates/{entity}",
+      "status_code": 200,
+      "duration_ms": 267.762
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/data-transfer/templates/defects",
+      "route_template": "/api/v1/data-transfer/templates/{entity}",
+      "status_code": 200,
+      "duration_ms": 14.832
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/data-transfer/templates/unknown",
+      "route_template": "/api/v1/data-transfer/templates/{entity}",
+      "status_code": 422,
+      "duration_ms": 5.517
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/data-transfer/templates/projects",
+      "route_template": "/api/v1/data-transfer/templates/{entity}",
+      "status_code": 422,
+      "duration_ms": 4.64
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/data-transfer/templates/test_cases",
+      "route_template": "/api/v1/data-transfer/templates/{entity}",
+      "status_code": 422,
+      "duration_ms": 3.931
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/data-transfer/templates/test-cases",
+      "route_template": "/api/v1/data-transfer/templates/{entity}",
+      "status_code": 422,
+      "duration_ms": 4.864
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/data-transfer/templates/test-cases",
+      "route_template": "/api/v1/data-transfer/templates/{entity}",
+      "status_code": 422,
+      "duration_ms": 4.625
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/data-transfer/templates/test-cases",
+      "route_template": "/api/v1/data-transfer/templates/{entity}",
+      "status_code": 422,
+      "duration_ms": 4.167
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/data-transfer/templates/test-cases",
+      "route_template": "/api/v1/data-transfer/templates/{entity}",
+      "status_code": 422,
+      "duration_ms": 4.023
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/health",
+      "route_template": "/api/v1/health",
+      "status_code": 200,
+      "duration_ms": 3.058
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/auth/status",
+      "route_template": "/api/v1/auth/status",
+      "status_code": 200,
+      "duration_ms": 670.705
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/auth/setup",
+      "route_template": "/api/v1/auth/setup",
+      "status_code": 422,
+      "duration_ms": 3.941
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/auth/login",
+      "route_template": "/api/v1/auth/login",
+      "status_code": 422,
+      "duration_ms": 4.457
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/auth/oidc/start",
+      "route_template": "/api/v1/auth/oidc/start",
+      "status_code": 403,
+      "duration_ms": 4.332
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/auth/oidc/callback",
+      "route_template": "/api/v1/auth/oidc/callback",
+      "status_code": 401,
+      "duration_ms": 4.731
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/auth/me",
+      "route_template": "/api/v1/auth/me",
+      "status_code": 404,
+      "duration_ms": 535.268
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/auth/logout",
+      "route_template": "/api/v1/auth/logout",
+      "status_code": 200,
+      "duration_ms": 4.133
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/auth/change-password",
+      "route_template": "/api/v1/auth/change-password",
+      "status_code": 422,
+      "duration_ms": 4.213
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/roles",
+      "route_template": "/api/v1/roles",
+      "status_code": 200,
+      "duration_ms": 546.976
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/users",
+      "route_template": "/api/v1/users",
+      "status_code": 200,
+      "duration_ms": 534.121
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/users",
+      "route_template": "/api/v1/users",
+      "status_code": 422,
+      "duration_ms": 5.113
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/users/00000000-0000-0000-0000-000000000001",
+      "route_template": "/api/v1/users/{user_id}",
+      "status_code": 404,
+      "duration_ms": 663.386
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/users/00000000-0000-0000-0000-000000000001/reset-password",
+      "route_template": "/api/v1/users/{user_id}/reset-password",
+      "status_code": 422,
+      "duration_ms": 5.322
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/users/00000000-0000-0000-0000-000000000001/revoke-sessions",
+      "route_template": "/api/v1/users/{user_id}/revoke-sessions",
+      "status_code": 404,
+      "duration_ms": 681.724
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/users/00000000-0000-0000-0000-000000000001/oidc-binding",
+      "route_template": "/api/v1/users/{user_id}/oidc-binding",
+      "status_code": 422,
+      "duration_ms": 9.079
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects",
+      "route_template": "/api/v1/projects",
+      "status_code": 422,
+      "duration_ms": 4.319
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects",
+      "route_template": "/api/v1/projects",
+      "status_code": 200,
+      "duration_ms": 667.404
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/00000000-0000-0000-0000-000000000001",
+      "route_template": "/api/v1/projects/{project_id}",
+      "status_code": 404,
+      "duration_ms": 534.683
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/projects/00000000-0000-0000-0000-000000000001",
+      "route_template": "/api/v1/projects/{project_id}",
+      "status_code": 404,
+      "duration_ms": 660.66
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects/00000000-0000-0000-0000-000000000001/transition",
+      "route_template": "/api/v1/projects/{project_id}/transition",
+      "status_code": 422,
+      "duration_ms": 5.202
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/projects/00000000-0000-0000-0000-000000000001",
+      "route_template": "/api/v1/projects/{project_id}",
+      "status_code": 404,
+      "duration_ms": 634.51
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/test-cases",
+      "route_template": "/api/v1/test-cases",
+      "status_code": 422,
+      "duration_ms": 4.308
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/test-cases",
+      "route_template": "/api/v1/test-cases",
+      "status_code": 200,
+      "duration_ms": 574.684
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/test-cases/00000000-0000-0000-0000-000000000001",
+      "route_template": "/api/v1/test-cases/{case_id}",
+      "status_code": 404,
+      "duration_ms": 575.385
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/test-cases/00000000-0000-0000-0000-000000000001",
+      "route_template": "/api/v1/test-cases/{case_id}",
+      "status_code": 404,
+      "duration_ms": 601.23
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/test-cases/00000000-0000-0000-0000-000000000001/transition",
+      "route_template": "/api/v1/test-cases/{case_id}/transition",
+      "status_code": 422,
+      "duration_ms": 5.454
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/test-cases/00000000-0000-0000-0000-000000000001",
+      "route_template": "/api/v1/test-cases/{case_id}",
+      "status_code": 404,
+      "duration_ms": 604.044
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/test-suites",
+      "route_template": "/api/v1/test-suites",
+      "status_code": 422,
+      "duration_ms": 5.374
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/test-suites",
+      "route_template": "/api/v1/test-suites",
+      "status_code": 200,
+      "duration_ms": 776.849
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/test-suites/00000000-0000-0000-0000-000000000001",
+      "route_template": "/api/v1/test-suites/{suite_id}",
+      "status_code": 404,
+      "duration_ms": 757.527
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/test-suites/00000000-0000-0000-0000-000000000001",
+      "route_template": "/api/v1/test-suites/{suite_id}",
+      "status_code": 404,
+      "duration_ms": 628.915
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/test-suites/00000000-0000-0000-0000-000000000001/transition",
+      "route_template": "/api/v1/test-suites/{suite_id}/transition",
+      "status_code": 422,
+      "duration_ms": 6.684
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/test-suites/00000000-0000-0000-0000-000000000001",
+      "route_template": "/api/v1/test-suites/{suite_id}",
+      "status_code": 404,
+      "duration_ms": 599.385
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/test-case-snapshots",
+      "route_template": "/api/v1/test-case-snapshots",
+      "status_code": 422,
+      "duration_ms": 6.755
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/test-case-snapshots",
+      "route_template": "/api/v1/test-case-snapshots",
+      "status_code": 200,
+      "duration_ms": 676.917
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/test-case-snapshots/00000000-0000-0000-0000-000000000001",
+      "route_template": "/api/v1/test-case-snapshots/{snapshot_id}",
+      "status_code": 404,
+      "duration_ms": 659.801
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/test-plans",
+      "route_template": "/api/v1/test-plans",
+      "status_code": 422,
+      "duration_ms": 5.4
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/test-plans",
+      "route_template": "/api/v1/test-plans",
+      "status_code": 200,
+      "duration_ms": 786.796
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/test-plans/00000000-0000-0000-0000-000000000001",
+      "route_template": "/api/v1/test-plans/{plan_id}",
+      "status_code": 404,
+      "duration_ms": 758.956
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/test-plans/00000000-0000-0000-0000-000000000001",
+      "route_template": "/api/v1/test-plans/{plan_id}",
+      "status_code": 404,
+      "duration_ms": 627.644
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/test-plans/00000000-0000-0000-0000-000000000001/transition",
+      "route_template": "/api/v1/test-plans/{plan_id}/transition",
+      "status_code": 422,
+      "duration_ms": 5.324
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/test-plans/00000000-0000-0000-0000-000000000001",
+      "route_template": "/api/v1/test-plans/{plan_id}",
+      "status_code": 404,
+      "duration_ms": 606.522
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/executions",
+      "route_template": "/api/v1/executions",
+      "status_code": 422,
+      "duration_ms": 5.222
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions",
+      "route_template": "/api/v1/executions",
+      "status_code": 200,
+      "duration_ms": 596.534
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/00000000-0000-0000-0000-000000000001",
+      "route_template": "/api/v1/executions/{execution_id}",
+      "status_code": 404,
+      "duration_ms": 624.426
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/executions/00000000-0000-0000-0000-000000000001/transition",
+      "route_template": "/api/v1/executions/{execution_id}/transition",
+      "status_code": 422,
+      "duration_ms": 5.919
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/executions/00000000-0000-0000-0000-000000000001/results/00000000-0000-0000-0000-000000000001",
+      "route_template": "/api/v1/executions/{execution_id}/results/{case_id}",
+      "status_code": 422,
+      "duration_ms": 6.343
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/executions/00000000-0000-0000-0000-000000000001",
+      "route_template": "/api/v1/executions/{execution_id}",
+      "status_code": 404,
+      "duration_ms": 638.71
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/defects",
+      "route_template": "/api/v1/defects",
+      "status_code": 422,
+      "duration_ms": 11.524
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/defects",
+      "route_template": "/api/v1/defects",
+      "status_code": 200,
+      "duration_ms": 734.767
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/defects/00000000-0000-0000-0000-000000000001",
+      "route_template": "/api/v1/defects/{defect_id}",
+      "status_code": 404,
+      "duration_ms": 653.986
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/defects/00000000-0000-0000-0000-000000000001",
+      "route_template": "/api/v1/defects/{defect_id}",
+      "status_code": 404,
+      "duration_ms": 566.206
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/defects/00000000-0000-0000-0000-000000000001/transition",
+      "route_template": "/api/v1/defects/{defect_id}/transition",
+      "status_code": 422,
+      "duration_ms": 6.408
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/audit-events",
+      "route_template": "/api/v1/audit-events",
+      "status_code": 200,
+      "duration_ms": 554.308
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/data-transfer/templates/test-cases",
+      "route_template": "/api/v1/data-transfer/templates/{entity}",
+      "status_code": 422,
+      "duration_ms": 6.889
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/data-transfer/imports/test-cases/preview",
+      "route_template": "/api/v1/data-transfer/imports/{entity}/preview",
+      "status_code": 422,
+      "duration_ms": 6.59
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/data-transfer/imports/test-cases",
+      "route_template": "/api/v1/data-transfer/imports/{entity}",
+      "status_code": 422,
+      "duration_ms": 8.951
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/data-transfer/exports/test-cases",
+      "route_template": "/api/v1/data-transfer/exports/{entity}",
+      "status_code": 422,
+      "duration_ms": 7.678
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/quality/report",
+      "route_template": "/api/v1/quality/report",
+      "status_code": 422,
+      "duration_ms": 6.919
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/quality/summary",
+      "route_template": "/api/v1/quality/summary",
+      "status_code": 422,
+      "duration_ms": 6.921
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/quality/trends",
+      "route_template": "/api/v1/quality/trends",
+      "status_code": 422,
+      "duration_ms": 6.762
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/quality/coverage",
+      "route_template": "/api/v1/quality/coverage",
+      "status_code": 422,
+      "duration_ms": 7.115
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/comments",
+      "route_template": "/api/v1/comments",
+      "status_code": 422,
+      "duration_ms": 8.736
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/comments",
+      "route_template": "/api/v1/comments",
+      "status_code": 422,
+      "duration_ms": 7.165
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/comments/00000000-0000-0000-0000-000000000001",
+      "route_template": "/api/v1/comments/{comment_id}",
+      "status_code": 422,
+      "duration_ms": 7.086
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/comments/00000000-0000-0000-0000-000000000001",
+      "route_template": "/api/v1/comments/{comment_id}",
+      "status_code": 404,
+      "duration_ms": 687.572
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/attachments",
+      "route_template": "/api/v1/attachments",
+      "status_code": 422,
+      "duration_ms": 7.534
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/attachments",
+      "route_template": "/api/v1/attachments",
+      "status_code": 422,
+      "duration_ms": 7.522
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/attachments/00000000-0000-0000-0000-000000000001/content",
+      "route_template": "/api/v1/attachments/{attachment_id}/content",
+      "status_code": 404,
+      "duration_ms": 787.144
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/attachments/00000000-0000-0000-0000-000000000001",
+      "route_template": "/api/v1/attachments/{attachment_id}",
+      "status_code": 404,
+      "duration_ms": 569.308
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/pipelines",
+      "route_template": "/api/v1/pipelines",
+      "status_code": 422,
+      "duration_ms": 7.014
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/pipelines",
+      "route_template": "/api/v1/pipelines",
+      "status_code": 200,
+      "duration_ms": 551.968
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/pipelines/00000000-0000-0000-0000-000000000001",
+      "route_template": "/api/v1/pipelines/{run_id}",
+      "status_code": 404,
+      "duration_ms": 650.898
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/pipelines/00000000-0000-0000-0000-000000000001/cancel",
+      "route_template": "/api/v1/pipelines/{run_id}/cancel",
+      "status_code": 404,
+      "duration_ms": 535.39
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/pipelines/00000000-0000-0000-0000-000000000001/callbacks",
+      "route_template": "/api/v1/pipelines/{run_id}/callbacks",
+      "status_code": 422,
+      "duration_ms": 6.953
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/integrations/connections/runtime-status",
+      "route_template": "/api/v1/integrations/connections/runtime-status",
+      "status_code": 200,
+      "duration_ms": 7.283
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/integrations/connections",
+      "route_template": "/api/v1/integrations/connections",
+      "status_code": 200,
+      "duration_ms": 719.533
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/integrations/connections",
+      "route_template": "/api/v1/integrations/connections",
+      "status_code": 422,
+      "duration_ms": 8.633
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/integrations/connections/00000000-0000-0000-0000-000000000001",
+      "route_template": "/api/v1/integrations/connections/{connection_id}",
+      "status_code": 404,
+      "duration_ms": 643.113
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/integrations/connections/00000000-0000-0000-0000-000000000001",
+      "route_template": "/api/v1/integrations/connections/{connection_id}",
+      "status_code": 422,
+      "duration_ms": 11.259
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/integrations/connections/00000000-0000-0000-0000-000000000001",
+      "route_template": "/api/v1/integrations/connections/{connection_id}",
+      "status_code": 404,
+      "duration_ms": 665.301
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/integrations/connections/00000000-0000-0000-0000-000000000001/test",
+      "route_template": "/api/v1/integrations/connections/{connection_id}/test",
+      "status_code": 404,
+      "duration_ms": 605.42
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/integrations/connections/00000000-0000-0000-0000-000000000001/trigger",
+      "route_template": "/api/v1/integrations/connections/{connection_id}/trigger",
+      "status_code": 404,
+      "duration_ms": 653.471
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/integrations/connections/trigger-intents/all",
+      "route_template": "/api/v1/integrations/connections/trigger-intents/all",
+      "status_code": 200,
+      "duration_ms": 656.625
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/integrations/connections/trigger-intents/dispatch-one",
+      "route_template": "/api/v1/integrations/connections/trigger-intents/dispatch-one",
+      "status_code": 200,
+      "duration_ms": 656.612
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/integrations/connections/00000000-0000-0000-0000-000000000001/runs",
+      "route_template": "/api/v1/integrations/connections/{connection_id}/runs",
+      "status_code": 404,
+      "duration_ms": 555.295
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/integrations/connections/00000000-0000-0000-0000-000000000001/runs/00000000-0000-0000-0000-000000000001",
+      "route_template": "/api/v1/integrations/connections/{connection_id}/runs/{run_id}",
+      "status_code": 404,
+      "duration_ms": 769.865
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/integrations/connections/00000000-0000-0000-0000-000000000001/runs/00000000-0000-0000-0000-000000000001/cancel",
+      "route_template": "/api/v1/integrations/connections/{connection_id}/runs/{run_id}/cancel",
+      "status_code": 404,
+      "duration_ms": 689.801
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/integrations/connections/00000000-0000-0000-0000-000000000001/runs/00000000-0000-0000-0000-000000000001/gate-decisions",
+      "route_template": "/api/v1/integrations/connections/{connection_id}/runs/{run_id}/gate-decisions",
+      "status_code": 422,
+      "duration_ms": 8.96
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/webhooks/learning-ci/00000000-0000-0000-0000-000000000001",
+      "route_template": "/api/v1/webhooks/learning-ci/{connection_id}",
+      "status_code": 404,
+      "duration_ms": 615.515
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/integrations/connections/00000000-0000-0000-0000-000000000001/runs/00000000-0000-0000-0000-000000000001/artifacts",
+      "route_template": "/api/v1/integrations/connections/{connection_id}/runs/{run_id}/artifacts",
+      "status_code": 404,
+      "duration_ms": 671.166
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/integrations/connections/00000000-0000-0000-0000-000000000001/runs/00000000-0000-0000-0000-000000000001/artifacts",
+      "route_template": "/api/v1/integrations/connections/{connection_id}/runs/{run_id}/artifacts",
+      "status_code": 422,
+      "duration_ms": 9.336
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/integrations/connections/00000000-0000-0000-0000-000000000001/runs/00000000-0000-0000-0000-000000000001/artifacts/00000000-0000-0000-0000-000000000001/content",
+      "route_template": "/api/v1/integrations/connections/{connection_id}/runs/{run_id}/artifacts/{artifact_id}/content",
+      "status_code": 404,
+      "duration_ms": 665.027
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/integrations/connections/00000000-0000-0000-0000-000000000001/runs/00000000-0000-0000-0000-000000000001/artifacts/00000000-0000-0000-0000-000000000001",
+      "route_template": "/api/v1/integrations/connections/{connection_id}/runs/{run_id}/artifacts/{artifact_id}",
+      "status_code": 404,
+      "duration_ms": 612.49
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/automation/tasks",
+      "route_template": "/api/v1/automation/tasks",
+      "status_code": 200,
+      "duration_ms": 932.595
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/automation/tasks/wakeup-outbox",
+      "route_template": "/api/v1/automation/tasks/wakeup-outbox",
+      "status_code": 200,
+      "duration_ms": 546.03
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/automation/tasks",
+      "route_template": "/api/v1/automation/tasks",
+      "status_code": 422,
+      "duration_ms": 10.889
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/automation/tasks/claim",
+      "route_template": "/api/v1/automation/tasks/claim",
+      "status_code": 422,
+      "duration_ms": 8.108
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/automation/tasks/00000000-0000-0000-0000-000000000001",
+      "route_template": "/api/v1/automation/tasks/{task_id}",
+      "status_code": 404,
+      "duration_ms": 560.877
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/automation/tasks/00000000-0000-0000-0000-000000000001/heartbeat",
+      "route_template": "/api/v1/automation/tasks/{task_id}/heartbeat",
+      "status_code": 422,
+      "duration_ms": 8.757
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/automation/tasks/00000000-0000-0000-0000-000000000001/complete",
+      "route_template": "/api/v1/automation/tasks/{task_id}/complete",
+      "status_code": 422,
+      "duration_ms": 17.167
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/automation/tasks/00000000-0000-0000-0000-000000000001/fail",
+      "route_template": "/api/v1/automation/tasks/{task_id}/fail",
+      "status_code": 422,
+      "duration_ms": 8.639
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/automation/tasks/00000000-0000-0000-0000-000000000001/cancel",
+      "route_template": "/api/v1/automation/tasks/{task_id}/cancel",
+      "status_code": 404,
+      "duration_ms": 937.625
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/automation/tasks/00000000-0000-0000-0000-000000000001/retry",
+      "route_template": "/api/v1/automation/tasks/{task_id}/retry",
+      "status_code": 404,
+      "duration_ms": 609.598
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/automation/tasks/00000000-0000-0000-0000-000000000001/dead-letter",
+      "route_template": "/api/v1/automation/tasks/{task_id}/dead-letter",
+      "status_code": 404,
+      "duration_ms": 686.038
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/automation/devices",
+      "route_template": "/api/v1/automation/devices",
+      "status_code": 200,
+      "duration_ms": 553.142
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/automation/devices",
+      "route_template": "/api/v1/automation/devices",
+      "status_code": 422,
+      "duration_ms": 9.217
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/automation/devices/acquire",
+      "route_template": "/api/v1/automation/devices/acquire",
+      "status_code": 422,
+      "duration_ms": 9.347
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/automation/devices/leases/00000000-0000-0000-0000-000000000001/start",
+      "route_template": "/api/v1/automation/devices/leases/{lease_id}/start",
+      "status_code": 422,
+      "duration_ms": 8.038
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/automation/devices/leases/00000000-0000-0000-0000-000000000001/renew",
+      "route_template": "/api/v1/automation/devices/leases/{lease_id}/renew",
+      "status_code": 422,
+      "duration_ms": 8.52
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/automation/devices/leases/00000000-0000-0000-0000-000000000001/release",
+      "route_template": "/api/v1/automation/devices/leases/{lease_id}/release",
+      "status_code": 422,
+      "duration_ms": 8.765
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/automation/devices/00000000-0000-0000-0000-000000000001",
+      "route_template": "/api/v1/automation/devices/{device_id}",
+      "status_code": 404,
+      "duration_ms": 589.086
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/automation/devices/00000000-0000-0000-0000-000000000001",
+      "route_template": "/api/v1/automation/devices/{device_id}",
+      "status_code": 422,
+      "duration_ms": 9.75
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/automation/devices/00000000-0000-0000-0000-000000000001",
+      "route_template": "/api/v1/automation/devices/{device_id}",
+      "status_code": 404,
+      "duration_ms": 639.34
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/automation/devices/00000000-0000-0000-0000-000000000001/heartbeat",
+      "route_template": "/api/v1/automation/devices/{device_id}/heartbeat",
+      "status_code": 422,
+      "duration_ms": 20.283
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/automation/schedules",
+      "route_template": "/api/v1/automation/schedules",
+      "status_code": 200,
+      "duration_ms": 710.819
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/automation/schedules",
+      "route_template": "/api/v1/automation/schedules",
+      "status_code": 422,
+      "duration_ms": 18.724
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/automation/schedules/tick",
+      "route_template": "/api/v1/automation/schedules/tick",
+      "status_code": 200,
+      "duration_ms": 569.325
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/automation/schedules/00000000-0000-0000-0000-000000000001",
+      "route_template": "/api/v1/automation/schedules/{schedule_id}",
+      "status_code": 404,
+      "duration_ms": 560.944
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/automation/schedules/00000000-0000-0000-0000-000000000001",
+      "route_template": "/api/v1/automation/schedules/{schedule_id}",
+      "status_code": 422,
+      "duration_ms": 8.689
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/automation/schedules/00000000-0000-0000-0000-000000000001",
+      "route_template": "/api/v1/automation/schedules/{schedule_id}",
+      "status_code": 404,
+      "duration_ms": 584.084
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/automation/schedules/00000000-0000-0000-0000-000000000001/run-now",
+      "route_template": "/api/v1/automation/schedules/{schedule_id}/run-now",
+      "status_code": 404,
+      "duration_ms": 598.326
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/automation/schedules/00000000-0000-0000-0000-000000000001/fires",
+      "route_template": "/api/v1/automation/schedules/{schedule_id}/fires",
+      "status_code": 404,
+      "duration_ms": 551.58
+    },
+    {
+      "method": "GET",
+      "path": "/health/live",
+      "route_template": "/health/live",
+      "status_code": 200,
+      "duration_ms": 7.189
+    },
+    {
+      "method": "GET",
+      "path": "/health/ready",
+      "route_template": "/health/ready",
+      "status_code": 200,
+      "duration_ms": 15.103
+    },
+    {
+      "method": "GET",
+      "path": "/metrics",
+      "route_template": "/metrics",
+      "status_code": 200,
+      "duration_ms": 542.918
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects",
+      "route_template": "/api/v1/projects",
+      "status_code": 201,
+      "duration_ms": 562.476
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/test-cases",
+      "route_template": "/api/v1/test-cases",
+      "status_code": 201,
+      "duration_ms": 14.475
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/test-cases/5f6a0a3e-38d1-4aa5-99f9-4636ed34d4ae/transition",
+      "route_template": "/api/v1/test-cases/{case_id}/transition",
+      "status_code": 200,
+      "duration_ms": 15.125
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/test-plans",
+      "route_template": "/api/v1/test-plans",
+      "status_code": 201,
+      "duration_ms": 14.123
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/test-plans/d261f1ca-4f6a-48bf-bf0c-798cdd515662/transition",
+      "route_template": "/api/v1/test-plans/{plan_id}/transition",
+      "status_code": 200,
+      "duration_ms": 19.467
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/executions",
+      "route_template": "/api/v1/executions",
+      "status_code": 201,
+      "duration_ms": 17.613
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/executions/7b58c1b8-e747-4f05-8964-fae09fff60aa/transition",
+      "route_template": "/api/v1/executions/{execution_id}/transition",
+      "status_code": 200,
+      "duration_ms": 24.211
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/executions/7b58c1b8-e747-4f05-8964-fae09fff60aa/results/5f6a0a3e-38d1-4aa5-99f9-4636ed34d4ae",
+      "route_template": "/api/v1/executions/{execution_id}/results/{case_id}",
+      "status_code": 200,
+      "duration_ms": 16.024
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/executions/7b58c1b8-e747-4f05-8964-fae09fff60aa/transition",
+      "route_template": "/api/v1/executions/{execution_id}/transition",
+      "status_code": 200,
+      "duration_ms": 20.406
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/quality/summary",
+      "route_template": "/api/v1/quality/summary",
+      "status_code": 200,
+      "duration_ms": 134.068
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects",
+      "route_template": "/api/v1/projects",
+      "status_code": 201,
+      "duration_ms": 583.024
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/test-cases",
+      "route_template": "/api/v1/test-cases",
+      "status_code": 201,
+      "duration_ms": 15.729
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/test-cases/ae6a75b7-c237-474e-8264-fcfff7407de9/transition",
+      "route_template": "/api/v1/test-cases/{case_id}/transition",
+      "status_code": 409,
+      "duration_ms": 12.094
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/test-cases/ae6a75b7-c237-474e-8264-fcfff7407de9",
+      "route_template": "/api/v1/test-cases/{case_id}",
+      "status_code": 200,
+      "duration_ms": 13.308
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/test-cases/ae6a75b7-c237-474e-8264-fcfff7407de9/transition",
+      "route_template": "/api/v1/test-cases/{case_id}/transition",
+      "status_code": 200,
+      "duration_ms": 17.615
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/test-cases/ae6a75b7-c237-474e-8264-fcfff7407de9/transition",
+      "route_template": "/api/v1/test-cases/{case_id}/transition",
+      "status_code": 409,
+      "duration_ms": 11.842
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects",
+      "route_template": "/api/v1/projects",
+      "status_code": 201,
+      "duration_ms": 776.142
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects",
+      "route_template": "/api/v1/projects",
+      "status_code": 409,
+      "duration_ms": 12.404
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/test-cases",
+      "route_template": "/api/v1/test-cases",
+      "status_code": 201,
+      "duration_ms": 16.534
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/test-cases/3d686c9c-095d-49ab-9145-c4194630fc4e/transition",
+      "route_template": "/api/v1/test-cases/{case_id}/transition",
+      "status_code": 200,
+      "duration_ms": 19.388
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/test-plans",
+      "route_template": "/api/v1/test-plans",
+      "status_code": 201,
+      "duration_ms": 19.449
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/test-plans/195fa39e-79d5-4791-b784-0348d40def3d/transition",
+      "route_template": "/api/v1/test-plans/{plan_id}/transition",
+      "status_code": 200,
+      "duration_ms": 27.786
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/test-cases/3d686c9c-095d-49ab-9145-c4194630fc4e",
+      "route_template": "/api/v1/test-cases/{case_id}",
+      "status_code": 409,
+      "duration_ms": 14.355
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/projects/f46a9ced-0428-4b78-8db9-5b6b9d7f6b3b",
+      "route_template": "/api/v1/projects/{project_id}",
+      "status_code": 409,
+      "duration_ms": 17.674
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects",
+      "route_template": "/api/v1/projects",
+      "status_code": 201,
+      "duration_ms": 632.599
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/test-cases",
+      "route_template": "/api/v1/test-cases",
+      "status_code": 201,
+      "duration_ms": 13.935
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/test-cases/4aa48e71-5ddc-4780-bf38-06c011be89ab/transition",
+      "route_template": "/api/v1/test-cases/{case_id}/transition",
+      "status_code": 200,
+      "duration_ms": 14.966
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/test-plans",
+      "route_template": "/api/v1/test-plans",
+      "status_code": 201,
+      "duration_ms": 15.96
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/test-plans/91f2765a-62a5-4393-a994-16212eaee218/transition",
+      "route_template": "/api/v1/test-plans/{plan_id}/transition",
+      "status_code": 200,
+      "duration_ms": 20.149
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/executions",
+      "route_template": "/api/v1/executions",
+      "status_code": 201,
+      "duration_ms": 24.227
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/executions/1885c237-cae5-46b6-b393-91be87042336/transition",
+      "route_template": "/api/v1/executions/{execution_id}/transition",
+      "status_code": 200,
+      "duration_ms": 28.808
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/executions/1885c237-cae5-46b6-b393-91be87042336/results/4aa48e71-5ddc-4780-bf38-06c011be89ab",
+      "route_template": "/api/v1/executions/{execution_id}/results/{case_id}",
+      "status_code": 200,
+      "duration_ms": 17.404
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects",
+      "route_template": "/api/v1/projects",
+      "status_code": 201,
+      "duration_ms": 980.9
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/test-cases",
+      "route_template": "/api/v1/test-cases",
+      "status_code": 201,
+      "duration_ms": 16.754
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/test-cases/8302c162-7ed6-4f67-ada3-cd97a0861946/transition",
+      "route_template": "/api/v1/test-cases/{case_id}/transition",
+      "status_code": 200,
+      "duration_ms": 17.358
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/test-plans",
+      "route_template": "/api/v1/test-plans",
+      "status_code": 201,
+      "duration_ms": 18.474
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/test-plans/63cb6ff5-89ca-4502-bc2b-49d670fe7b23/transition",
+      "route_template": "/api/v1/test-plans/{plan_id}/transition",
+      "status_code": 200,
+      "duration_ms": 25.215
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/executions",
+      "route_template": "/api/v1/executions",
+      "status_code": 201,
+      "duration_ms": 21.463
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/executions/e45e1ab1-c450-4ea3-ae03-00385b189c24/transition",
+      "route_template": "/api/v1/executions/{execution_id}/transition",
+      "status_code": 200,
+      "duration_ms": 28.899
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/executions/e45e1ab1-c450-4ea3-ae03-00385b189c24/results/8302c162-7ed6-4f67-ada3-cd97a0861946",
+      "route_template": "/api/v1/executions/{execution_id}/results/{case_id}",
+      "status_code": 200,
+      "duration_ms": 19.156
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects",
+      "route_template": "/api/v1/projects",
+      "status_code": 201,
+      "duration_ms": 575.568
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/test-cases",
+      "route_template": "/api/v1/test-cases",
+      "status_code": 201,
+      "duration_ms": 15.308
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/test-cases/6af9265d-4205-422b-a04e-eae6864e33e8/transition",
+      "route_template": "/api/v1/test-cases/{case_id}/transition",
+      "status_code": 200,
+      "duration_ms": 14.627
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/test-plans",
+      "route_template": "/api/v1/test-plans",
+      "status_code": 201,
+      "duration_ms": 14.854
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/test-plans/922244b2-49d3-4af3-a86b-baa6f252ad9a/transition",
+      "route_template": "/api/v1/test-plans/{plan_id}/transition",
+      "status_code": 200,
+      "duration_ms": 21.042
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/executions",
+      "route_template": "/api/v1/executions",
+      "status_code": 201,
+      "duration_ms": 19.305
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/executions/6d9c4867-6edd-4793-aba3-d4e3533b09f8/transition",
+      "route_template": "/api/v1/executions/{execution_id}/transition",
+      "status_code": 200,
+      "duration_ms": 25.372
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/executions/6d9c4867-6edd-4793-aba3-d4e3533b09f8/results/6af9265d-4205-422b-a04e-eae6864e33e8",
+      "route_template": "/api/v1/executions/{execution_id}/results/{case_id}",
+      "status_code": 200,
+      "duration_ms": 17.193
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects",
+      "route_template": "/api/v1/projects",
+      "status_code": 201,
+      "duration_ms": 710.986
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/test-cases",
+      "route_template": "/api/v1/test-cases",
+      "status_code": 201,
+      "duration_ms": 14.319
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/test-cases/88e857a0-d4b1-4712-96b5-aed016e93508/transition",
+      "route_template": "/api/v1/test-cases/{case_id}/transition",
+      "status_code": 200,
+      "duration_ms": 16.307
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/test-plans",
+      "route_template": "/api/v1/test-plans",
+      "status_code": 201,
+      "duration_ms": 16.578
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/test-plans/4ec21db1-fa80-45b0-afd4-7063108e8057/transition",
+      "route_template": "/api/v1/test-plans/{plan_id}/transition",
+      "status_code": 200,
+      "duration_ms": 22.25
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/executions",
+      "route_template": "/api/v1/executions",
+      "status_code": 201,
+      "duration_ms": 20.176
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/executions/ad21ddb0-8b09-44d3-b67a-31211719af82/transition",
+      "route_template": "/api/v1/executions/{execution_id}/transition",
+      "status_code": 200,
+      "duration_ms": 34.47
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/executions/ad21ddb0-8b09-44d3-b67a-31211719af82/results/88e857a0-d4b1-4712-96b5-aed016e93508",
+      "route_template": "/api/v1/executions/{execution_id}/results/{case_id}",
+      "status_code": 200,
+      "duration_ms": 27.147
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects",
+      "route_template": "/api/v1/projects",
+      "status_code": 201,
+      "duration_ms": 677.888
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/test-cases",
+      "route_template": "/api/v1/test-cases",
+      "status_code": 201,
+      "duration_ms": 21.325
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/test-cases/97d6720d-40c1-4d17-acc6-97c72b00ef7e/transition",
+      "route_template": "/api/v1/test-cases/{case_id}/transition",
+      "status_code": 200,
+      "duration_ms": 28.615
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/test-plans",
+      "route_template": "/api/v1/test-plans",
+      "status_code": 201,
+      "duration_ms": 16.598
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/test-plans/a65a9277-241b-4a83-aec2-28ef46c870d6/transition",
+      "route_template": "/api/v1/test-plans/{plan_id}/transition",
+      "status_code": 200,
+      "duration_ms": 22.664
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/executions",
+      "route_template": "/api/v1/executions",
+      "status_code": 201,
+      "duration_ms": 25.641
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/executions/486f4579-24c6-45b2-8820-9bae7e264d1c/transition",
+      "route_template": "/api/v1/executions/{execution_id}/transition",
+      "status_code": 200,
+      "duration_ms": 43.47
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/executions/486f4579-24c6-45b2-8820-9bae7e264d1c/results/97d6720d-40c1-4d17-acc6-97c72b00ef7e",
+      "route_template": "/api/v1/executions/{execution_id}/results/{case_id}",
+      "status_code": 409,
+      "duration_ms": 12.671
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/health",
+      "route_template": "/api/v1/health",
+      "status_code": 200,
+      "duration_ms": 12.12
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/health",
+      "route_template": "/api/v1/health",
+      "status_code": 200,
+      "duration_ms": 8.419
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/health",
+      "route_template": "/api/v1/health",
+      "status_code": 200,
+      "duration_ms": 9.974
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/health",
+      "route_template": "/api/v1/health",
+      "status_code": 200,
+      "duration_ms": 10.913
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/health",
+      "route_template": "/api/v1/health",
+      "status_code": 200,
+      "duration_ms": 8.388
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects",
+      "route_template": "/api/v1/projects",
+      "status_code": 422,
+      "duration_ms": 11.906
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects",
+      "route_template": "/api/v1/projects",
+      "status_code": 422,
+      "duration_ms": 9.44
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects",
+      "route_template": "/api/v1/projects",
+      "status_code": 422,
+      "duration_ms": 9.38
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects",
+      "route_template": "/api/v1/projects",
+      "status_code": 422,
+      "duration_ms": 10.134
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/projects",
+      "route_template": "/api/v1/projects",
+      "status_code": 422,
+      "duration_ms": 9.3
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/projects/not-a-uuid",
+      "route_template": "/api/v1/projects/{project_id}",
+      "status_code": 422,
+      "duration_ms": 9.613
+    },
+    {
+      "method": "GET",
+      "path": "/metrics",
+      "route_template": "/metrics",
+      "status_code": 200,
+      "duration_ms": 694.438
+    },
+    {
+      "method": "GET",
+      "path": "/metrics",
+      "route_template": "/metrics",
+      "status_code": 200,
+      "duration_ms": 9.168
+    },
+    {
+      "method": "OPTIONS",
+      "path": "/api/v1/projects",
+      "route_template": "/api/v1/projects",
+      "status_code": 200,
+      "duration_ms": 7.58
+    },
+    {
+      "method": "OPTIONS",
+      "path": "/api/v1/projects",
+      "route_template": "/api/v1/projects",
+      "status_code": 400,
+      "duration_ms": 7.711
+    },
+    {
+      "method": "HEAD",
+      "path": "/api/v1/projects",
+      "route_template": "/api/v1/projects",
+      "status_code": 405,
+      "duration_ms": 8.43
+    },
+    {
+      "method": "HEAD",
+      "path": "/api/v1/test-cases",
+      "route_template": "/api/v1/test-cases",
+      "status_code": 405,
+      "duration_ms": 7.407
+    },
+    {
+      "method": "HEAD",
+      "path": "/api/v1/quality/summary",
+      "route_template": "/api/v1/quality/summary",
+      "status_code": 405,
+      "duration_ms": 7.593
+    },
+    {
+      "method": "HEAD",
+      "path": "/metrics",
+      "route_template": "/metrics",
+      "status_code": 405,
+      "duration_ms": 8.371
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/health",
+      "route_template": "/api/v1/health",
+      "status_code": 200,
+      "duration_ms": 9.45
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/health",
+      "route_template": "/api/v1/health",
+      "status_code": 200,
+      "duration_ms": 8.184
+    },
+    {
+      "method": "GET",
+      "path": "/metrics",
+      "route_template": "/metrics",
+      "status_code": 200,
+      "duration_ms": 598.806
+    }
+  ],
+  "summary": {
+    "passed": 237
+  }
+}
