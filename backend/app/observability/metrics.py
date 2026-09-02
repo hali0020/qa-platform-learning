@@ -200,6 +200,72 @@ class BusinessMetrics:
         return value
 
 
+class CacheMetrics:
+    def __init__(self, registry: CollectorRegistry) -> None:
+        self.lookups_total = Counter(
+            "qa_cache_lookups_total",
+            "Cache lookups by bounded cache and outcome.",
+            ("cache", "outcome"),
+            registry=registry,
+        )
+        self.operations_total = Counter(
+            "qa_cache_operations_total",
+            "Cache fills and invalidations by outcome.",
+            ("cache", "operation", "outcome"),
+            registry=registry,
+        )
+        self.database_fallback_total = Counter(
+            "qa_cache_database_fallback_total",
+            "Database reads caused by cache misses or failures.",
+            ("cache",),
+            registry=registry,
+        )
+        self.database_fallback_duration_seconds = Histogram(
+            "qa_cache_database_fallback_duration_seconds",
+            "Database fallback duration after cache miss or failure.",
+            ("cache",),
+            buckets=(
+                0.001,
+                0.0025,
+                0.005,
+                0.01,
+                0.025,
+                0.05,
+                0.1,
+                0.25,
+                0.5,
+                1,
+            ),
+            registry=registry,
+        )
+
+    def record_cache_lookup(self, *, cache: str, outcome: str) -> None:
+        if cache != "projects" or outcome not in {"hit", "miss", "error"}:
+            raise ValueError("unsupported cache metric label")
+        self.lookups_total.labels(cache=cache, outcome=outcome).inc()
+
+    def record_cache_operation(
+        self, *, cache: str, operation: str, succeeded: bool
+    ) -> None:
+        if cache != "projects" or operation not in {"fill", "invalidate"}:
+            raise ValueError("unsupported cache metric label")
+        self.operations_total.labels(
+            cache=cache,
+            operation=operation,
+            outcome="succeeded" if succeeded else "failed",
+        ).inc()
+
+    def observe_database_fallback(
+        self, *, cache: str, duration_seconds: float
+    ) -> None:
+        if cache != "projects":
+            raise ValueError("unsupported cache metric label")
+        self.database_fallback_total.labels(cache=cache).inc()
+        self.database_fallback_duration_seconds.labels(cache=cache).observe(
+            max(0.0, duration_seconds)
+        )
+
+
 class ObservabilityMetrics:
     """Metrics bound to one explicit registry, safe for app-factory tests."""
 
@@ -207,3 +273,4 @@ class ObservabilityMetrics:
         self.registry = registry or CollectorRegistry(auto_describe=True)
         self.http = HttpMetrics(self.registry)
         self.business = BusinessMetrics(self.registry)
+        self.cache = CacheMetrics(self.registry)

@@ -106,6 +106,7 @@ class ApplicationContainer:
 def build_container(
     database: Database | None = None,
     settings: Settings | None = None,
+    cache_metrics: object | None = None,
 ) -> ApplicationContainer:
     # 无参模式保留给纯 Service 单测；真实应用传入 Database 使用持久化仓储。
     business_lock = asyncio.Lock()
@@ -133,6 +134,7 @@ def build_container(
         snapshot_repository = TestCaseSnapshotRepository(database)
 
     cache: JsonCache | None = None
+    project_query_repository = project_repository
     if settings is not None and settings.cache_runtime_mode == "redis_local_container":
         from app.cache import RedisJsonCache
         from app.repositories.cached_projects import CachedProjectRepository
@@ -141,10 +143,11 @@ def build_container(
             settings.cache_url,
             operation_timeout_seconds=settings.cache_operation_timeout_seconds,
         )
-        project_repository = CachedProjectRepository(
+        project_query_repository = CachedProjectRepository(
             project_repository,
             cache,
             ttl_seconds=settings.cache_ttl_seconds,
+            metrics=cache_metrics,
         )
 
     audit_service = AuditService(audit_repository, business_lock)
@@ -181,6 +184,10 @@ def build_container(
         suite_repository,
         snapshot_repository,
         business_lock,
+        project_queries=project_query_repository,
+        cache_invalidator=(
+            project_query_repository if cache is not None else None
+        ),
     )
     case_service = TestCaseService(
         case_repository,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from asyncio import Lock
+from typing import Protocol
 from uuid import UUID
 
 from app.core.errors import ConflictError, NotFoundError
@@ -21,6 +22,10 @@ from app.domain.models import (
 from app.repositories.base import AsyncRepository
 from app.schemas.projects import ProjectCreate, ProjectUpdate
 from app.services.common import parse_uuid
+
+
+class ProjectCacheInvalidator(Protocol):
+    async def invalidate(self, project_id: UUID) -> None: ...
 
 
 class ProjectService:
@@ -44,8 +49,12 @@ class ProjectService:
         test_suites: AsyncRepository[TestSuite],
         snapshots: AsyncRepository[TestCaseSnapshot],
         business_lock: Lock,
+        project_queries: AsyncRepository[Project] | None = None,
+        cache_invalidator: ProjectCacheInvalidator | None = None,
     ) -> None:
         self._projects = projects
+        self._project_queries = project_queries or projects
+        self._cache_invalidator = cache_invalidator
         self._test_cases = test_cases
         self._test_plans = test_plans
         self._executions = executions
@@ -61,7 +70,9 @@ class ProjectService:
                 name=payload.name,
                 description=payload.description,
             )
-            return await self._projects.create(project, unique_fields=("key",))
+            created = await self._projects.create(project, unique_fields=("key",))
+            await self._invalidate_cache(created.id)
+            return created
 
     async def list(self, status: ProjectStatus | None = None) -> list[Project]:
         async with self._business_lock:
@@ -71,14 +82,18 @@ class ProjectService:
         self,
         status: ProjectStatus | None = None,
     ) -> list[Project]:
-        items = await self._projects.list()
+        items = await self._project_queries.list()
         if status is not None:
             items = [item for item in items if item.status == status]
         return sorted(items, key=lambda item: item.created_at)
 
     async def get(self, project_id: str | UUID) -> Project:
         async with self._business_lock:
-            return await self._get_unlocked(project_id)
+            parsed_id = parse_uuid(project_id, "project_id")
+            project = await self._project_queries.get(parsed_id)
+            if project is None:
+                raise NotFoundError("项目", parsed_id)
+            return project
 
     async def _get_unlocked(self, project_id: str | UUID) -> Project:
         parsed_id = parse_uuid(project_id, "project_id")
@@ -97,7 +112,9 @@ class ProjectService:
             changes = payload.model_dump(exclude_unset=True, exclude_none=True)
             changes["updated_at"] = utc_now()
             updated = project.model_copy(update=changes)
-            return await self._projects.update(updated, unique_fields=("key",))
+            saved = await self._projects.update(updated, unique_fields=("key",))
+            await self._invalidate_cache(saved.id)
+            return saved
 
     async def transition(
         self,
@@ -113,7 +130,9 @@ class ProjectService:
             updated = project.model_copy(
                 update={"status": target, "updated_at": utc_now()}
             )
-            return await self._projects.update(updated, unique_fields=("key",))
+            saved = await self._projects.update(updated, unique_fields=("key",))
+            await self._invalidate_cache(saved.id)
+            return saved
 
     async def delete(self, project_id: str | UUID) -> UUID:
         async with self._business_lock:
@@ -134,7 +153,12 @@ class ProjectService:
             if any(snapshot.project_id == project.id for snapshot in snapshots):
                 raise ConflictError("项目仍有测试用例快照，不能删除")
             await self._projects.delete(project.id)
+            await self._invalidate_cache(project.id)
             return project.id
+
+    async def _invalidate_cache(self, project_id: UUID) -> None:
+        if self._cache_invalidator is not None:
+            await self._cache_invalidator.invalidate(project_id)
 
     async def _ensure_project_has_no_active_work(self, project_id: UUID) -> None:
         plans = await self._test_plans.list()

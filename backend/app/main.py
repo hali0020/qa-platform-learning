@@ -59,12 +59,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         runtime_mode=current_settings.database_runtime_mode,
         app_env=current_settings.app_env,
     )
-    install_observability(
+    observability = install_observability(
         application,
         database=database,
         settings=current_settings,
     )
-    application.state.container = build_container(database, current_settings)
+    application.state.container = build_container(
+        database,
+        current_settings,
+        cache_metrics=observability.metrics.cache,
+    )
     secret_store = build_secret_store(current_settings)
     application.state.runtime_service = create_runtime_service(
         database,

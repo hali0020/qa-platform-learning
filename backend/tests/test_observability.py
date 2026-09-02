@@ -252,6 +252,31 @@ def test_each_runtime_uses_an_independent_registry() -> None:
     assert 'qa_automation_tasks{state="queued"} 2.0' in second_text
 
 
+def test_cache_metrics_expose_bounded_lookup_and_fallback_signals() -> None:
+    metrics = ObservabilityMetrics(CollectorRegistry(auto_describe=True))
+
+    metrics.cache.record_cache_lookup(cache="projects", outcome="hit")
+    metrics.cache.record_cache_lookup(cache="projects", outcome="miss")
+    metrics.cache.record_cache_operation(
+        cache="projects", operation="fill", succeeded=True
+    )
+    metrics.cache.observe_database_fallback(
+        cache="projects", duration_seconds=0.012
+    )
+
+    text = generate_latest(metrics.registry).decode()
+    assert 'qa_cache_lookups_total{cache="projects",outcome="hit"} 1.0' in text
+    assert 'qa_cache_lookups_total{cache="projects",outcome="miss"} 1.0' in text
+    assert (
+        'qa_cache_operations_total{cache="projects",operation="fill",'
+        'outcome="succeeded"} 1.0'
+    ) in text
+    assert 'qa_cache_database_fallback_total{cache="projects"} 1.0' in text
+
+    with pytest.raises(ValueError):
+        metrics.cache.record_cache_lookup(cache="user-id", outcome="hit")
+
+
 @pytest.mark.asyncio
 async def test_metrics_uses_the_runtime_read_only_snapshot_contract() -> None:
     class SnapshotOnlyRuntime:

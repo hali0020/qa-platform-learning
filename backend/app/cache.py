@@ -1,14 +1,21 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Protocol
 
 
+@dataclass(frozen=True, slots=True)
+class CacheLookup:
+    value: str | None
+    failed: bool = False
+
+
 class JsonCache(Protocol):
-    async def get(self, key: str) -> str | None: ...
+    async def get(self, key: str) -> CacheLookup: ...
 
-    async def set(self, key: str, value: str, *, ttl_seconds: int) -> None: ...
+    async def set(self, key: str, value: str, *, ttl_seconds: int) -> bool: ...
 
-    async def delete(self, *keys: str) -> None: ...
+    async def delete(self, *keys: str) -> bool: ...
 
     async def aclose(self) -> None: ...
 
@@ -28,26 +35,28 @@ class RedisJsonCache:
             retry_on_timeout=False,
         )
 
-    async def get(self, key: str) -> str | None:
+    async def get(self, key: str) -> CacheLookup:
         try:
             value = await self._client.get(key)
-            return value if isinstance(value, str) else None
+            return CacheLookup(value if isinstance(value, str) else None)
         except Exception:
-            return None
+            return CacheLookup(None, failed=True)
 
-    async def set(self, key: str, value: str, *, ttl_seconds: int) -> None:
+    async def set(self, key: str, value: str, *, ttl_seconds: int) -> bool:
         try:
             await self._client.set(key, value, ex=ttl_seconds)
+            return True
         except Exception:
-            return
+            return False
 
-    async def delete(self, *keys: str) -> None:
+    async def delete(self, *keys: str) -> bool:
         if not keys:
-            return
+            return True
         try:
             await self._client.delete(*keys)
+            return True
         except Exception:
-            return
+            return False
 
     async def aclose(self) -> None:
         try:
@@ -56,4 +65,4 @@ class RedisJsonCache:
             return
 
 
-__all__ = ["JsonCache", "RedisJsonCache"]
+__all__ = ["CacheLookup", "JsonCache", "RedisJsonCache"]

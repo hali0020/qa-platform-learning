@@ -12,6 +12,7 @@ from app.observability.json_logging import (
 )
 from app.observability.metrics import (
     BusinessMetrics,
+    CacheMetrics,
     DeviceMetricState,
     ObservabilityMetrics,
     ProviderMetricKind,
@@ -24,6 +25,7 @@ from app.observability.runtime import ObservabilityRuntime, install_observabilit
 
 __all__ = [
     "BusinessMetrics",
+    "CacheMetrics",
     "DatabaseReadinessProbe",
     "DeviceMetricState",
     "JsonLogFormatter",
