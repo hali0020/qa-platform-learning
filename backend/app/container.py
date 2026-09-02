@@ -21,6 +21,7 @@ from app.domain.models import (
 )
 from app.repositories.base import AsyncRepository
 from app.repositories.memory import InMemoryRepository
+from app.cache import JsonCache
 from app.repositories.sqlalchemy import (
     AuditEventRepository,
     DefectRepository,
@@ -75,6 +76,7 @@ class ApplicationContainer:
         repr=False,
     )
     database: Database | None = None
+    cache: JsonCache | None = field(default=None, repr=False)
 
     async def initialize(self) -> None:
         if self.database is not None:
@@ -86,6 +88,8 @@ class ApplicationContainer:
         ]
         if self.oidc is not None:
             close_operations.append(self.oidc.aclose())
+        if self.cache is not None:
+            close_operations.append(self.cache.aclose())
         resource_results = await asyncio.gather(
             *close_operations,
             return_exceptions=True,
@@ -127,6 +131,21 @@ def build_container(
         audit_repository = AuditEventRepository(database)
         suite_repository = TestSuiteRepository(database)
         snapshot_repository = TestCaseSnapshotRepository(database)
+
+    cache: JsonCache | None = None
+    if settings is not None and settings.cache_runtime_mode == "redis_local_container":
+        from app.cache import RedisJsonCache
+        from app.repositories.cached_projects import CachedProjectRepository
+
+        cache = RedisJsonCache(
+            settings.cache_url,
+            operation_timeout_seconds=settings.cache_operation_timeout_seconds,
+        )
+        project_repository = CachedProjectRepository(
+            project_repository,
+            cache,
+            ttl_seconds=settings.cache_ttl_seconds,
+        )
 
     audit_service = AuditService(audit_repository, business_lock)
     suite_service = TestSuiteService(
@@ -311,4 +330,5 @@ def build_container(
         provider_artifacts=provider_artifact_service,
         attachment_storages=attachment_storages,
         database=database,
+        cache=cache,
     )

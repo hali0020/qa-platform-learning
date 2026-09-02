@@ -1,6 +1,35 @@
 name: qa-platform-learning
 
 services:
+  redis:
+    image: redis:7.4.2-alpine
+    command:
+      - redis-server
+      - --save
+      - ""
+      - --appendonly
+      - "no"
+      - --maxmemory
+      - 128mb
+      - --maxmemory-policy
+      - allkeys-lru
+    expose:
+      - "6379"
+    read_only: true
+    tmpfs:
+      - /data:size=16m,mode=0700
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    restart: unless-stopped
+
   postgres:
     # Optional phase-2 database runtime; activate it explicitly with the
     # postgres profile and matching COMPOSE_DATABASE_* values in local .env.
@@ -459,6 +488,10 @@ services:
       DATABASE_RUNTIME_MODE: ${COMPOSE_DATABASE_RUNTIME_MODE:?copy .env.example to .env}
       DATABASE_URL: ${COMPOSE_DATABASE_URL:?copy .env.example to .env}
       DATABASE_SCHEMA_MODE: verify
+      CACHE_RUNTIME_MODE: ${COMPOSE_CACHE_RUNTIME_MODE:-redis_local_container}
+      CACHE_URL: ${COMPOSE_CACHE_URL:-redis://redis:6379/0}
+      CACHE_TTL_SECONDS: ${CACHE_TTL_SECONDS:-60}
+      CACHE_OPERATION_TIMEOUT_SECONDS: ${CACHE_OPERATION_TIMEOUT_SECONDS:-0.2}
       # Web writes the transactional outbox only. Broker credentials belong
       # exclusively to Worker and the outbox dispatcher.
       BROKER_RUNTIME_MODE: disabled_local
@@ -511,6 +544,8 @@ services:
       # Independent inbound signing key; never reuse the outbound Bearer token.
       QA_PROVIDER_SECRET_CI_LAB_WEBHOOK: ${QA_PROVIDER_SECRET_CI_LAB_WEBHOOK:-}
     depends_on:
+      redis:
+        condition: service_healthy
       migration:
         condition: service_completed_successfully
       postgres:

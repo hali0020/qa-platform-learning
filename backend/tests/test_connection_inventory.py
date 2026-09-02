@@ -68,6 +68,7 @@ _ALLOWED_TARGETS: set[tuple[str, str | None, int | None]] = {
     ("https", "ci.lab.test", None),
     ("amqp", "rabbitmq", 5672),
     ("postgresql+asyncpg", "postgres", 5432),
+    ("redis", "redis", 6379),
 }
 _ALLOWED_SQLITE_LITERALS = {
     "sqlite+aiosqlite:///",

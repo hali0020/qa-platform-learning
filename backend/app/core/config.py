@@ -519,6 +519,10 @@ class Settings:
         default="sqlite+aiosqlite:///./.data/qa.db",
         repr=False,
     )
+    cache_runtime_mode: str = "disabled_local"
+    cache_url: str = field(default="", repr=False)
+    cache_ttl_seconds: int = 60
+    cache_operation_timeout_seconds: float = 0.2
     broker_runtime_mode: str = "disabled_local"
     broker_url: str = field(default="", repr=False)
     local_data_root: str = "./.data"
@@ -632,6 +636,14 @@ class Settings:
                 "DATABASE_URL",
                 "sqlite+aiosqlite:///./.data/qa.db",
             ).strip(),
+            cache_runtime_mode=os.getenv(
+                "CACHE_RUNTIME_MODE", "disabled_local"
+            ).strip().lower(),
+            cache_url=os.getenv("CACHE_URL", "").strip(),
+            cache_ttl_seconds=int(os.getenv("CACHE_TTL_SECONDS", "60")),
+            cache_operation_timeout_seconds=float(
+                os.getenv("CACHE_OPERATION_TIMEOUT_SECONDS", "0.2")
+            ),
             broker_runtime_mode=os.getenv(
                 "BROKER_RUNTIME_MODE", "disabled_local"
             ).strip().lower(),
@@ -749,6 +761,19 @@ class Settings:
             runtime_mode=self.broker_runtime_mode,
             app_env=self.app_env,
         )
+        if self.cache_runtime_mode not in {"disabled_local", "redis_local_container"}:
+            raise RuntimeError("CACHE_RUNTIME_MODE 只能是 disabled_local 或 redis_local_container")
+        if self.cache_runtime_mode == "disabled_local":
+            if self.cache_url:
+                raise RuntimeError("disabled_local 禁止配置 CACHE_URL")
+        elif self.app_env != "local-container" or self.cache_url != "redis://redis:6379/0":
+            raise RuntimeError(
+                "redis_local_container 仅允许 local-container 使用固定项目内 Redis 地址"
+            )
+        if not 5 <= self.cache_ttl_seconds <= 3600:
+            raise RuntimeError("缓存 TTL 必须在 5 到 3600 秒之间")
+        if not 0.05 <= self.cache_operation_timeout_seconds <= 2:
+            raise RuntimeError("缓存操作超时必须在 0.05 到 2 秒之间")
         validate_object_storage_runtime_target(
             runtime_mode=self.object_storage_runtime_mode,
             app_env=self.app_env,
